@@ -1,0 +1,138 @@
+:root {
+  --blue: #0e6ba8;
+  --blue-dark: #094a75;
+  --green: #1a9c5e;
+  --orange: #a3640d; /* assombri par rapport à #d98a1f pour un contraste AA suffisant avec du texte blanc */
+  --red: #c0392b;
+  --bg: #f4f7f9;
+  --card: #ffffff;
+  --border: #dde3e8;
+  --text: #223;
+  --text-light: #667;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); }
+.layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 220px; background: var(--blue-dark); color: #fff; display: flex; flex-direction: column;
+  padding: 20px 0; flex-shrink: 0;
+}
+.brand {
+  font-size: 18px; font-weight: 700; padding: 0 20px 20px; border-bottom: 1px solid rgba(255,255,255,.15);
+  margin-bottom: 12px; display: flex; align-items: center; gap: 10px;
+}
+.brand-logo { width: 30px; height: 30px; flex-shrink: 0; }
+.nav-link { color: #dfeaf3; text-decoration: none; padding: 12px 20px; display: block; font-size: 14px; }
+.nav-link:hover, .nav-link.active { background: rgba(255,255,255,.12); }
+.sidebar-footer {
+  margin-top: auto; padding: 14px 20px 4px; border-top: 1px solid rgba(255,255,255,.15);
+  color: #9fc4de; font-size: 11px; line-height: 1.5;
+}
+.content { flex: 1; padding: 28px 40px; max-width: 1800px; }
+h1 { font-size: 22px; margin: 0 0 18px; }
+h2 { font-size: 17px; margin: 0 0 10px; }
+h3 { font-size: 14px; margin: 0 0 8px; color: var(--text-light); text-transform: uppercase; letter-spacing: .03em; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+.btn {
+  display: inline-block; background: var(--blue); color: #fff; border: none; border-radius: 6px;
+  padding: 9px 16px; font-size: 14px; cursor: pointer; text-decoration: none;
+}
+.btn:hover { background: var(--blue-dark); }
+.btn.secondary { background: #fff; color: var(--blue); border: 1px solid var(--blue); }
+.btn.danger { background: var(--red); }
+.btn.small { padding: 5px 10px; font-size: 12px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+label { display: block; font-size: 13px; color: var(--text-light); margin: 12px 0 4px; }
+input, select, textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: inherit;
+}
+textarea { min-height: 90px; resize: vertical; }
+.row { display: flex; gap: 16px; flex-wrap: wrap; }
+.row > div { flex: 1; min-width: 200px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--text-light); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+tr.course-row { cursor: pointer; }
+tr.course-row:hover { background: #f0f6fa; }
+tr.course-row-past { color: var(--text-light); }
+tr.course-row-past strong { color: #556; }
+tr.course-row-past:hover { background: #f4f4f4; }
+.badge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 12px; font-weight: 600; color: #fff; }
+.badge.ok { background: var(--green); }
+.badge.warn { background: var(--orange); }
+.badge.bad { background: var(--red); }
+.badge.info { background: var(--blue); }
+.progress-bar { background: #e6ebef; border-radius: 6px; height: 8px; overflow: hidden; width: 100px; display: inline-block; vertical-align: middle; }
+.progress-bar > div { height: 100%; background: var(--green); }
+.progress-bar.low > div { background: var(--red); }
+.progress-bar.mid > div { background: var(--orange); }
+.muted { color: var(--text-light); font-size: 13px; }
+.checklist-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 14px; }
+.checklist-item-row { padding: 5px 0; display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+.checklist-item-row .checklist-item { padding: 0; }
+.checklist-item input[type=checkbox] { width: auto; }
+.student-block { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
+.student-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.student-details { margin-top: 12px; display: none; border-top: 1px solid var(--border); padding-top: 12px; }
+.student-details.open { display: block; }
+.two-col { display: flex; gap: 24px; flex-wrap: wrap; }
+.two-col > div { flex: 1; min-width: 240px; }
+.tag-status { font-size: 12px; background: #eef3f6; padding: 2px 8px; border-radius: 10px; color: var(--text-light); }
+.certif-final { margin-top: 16px; padding-top: 14px; border-top: 2px solid var(--border); }
+.certif-final h3 { margin-bottom: 6px; }
+.certif-final-label { font-size: 15px; font-weight: 600; }
+#toast {
+  position: fixed; top: 16px; right: 16px; z-index: 999; display: flex; flex-direction: column; gap: 8px;
+}
+.toast-msg { background: #222; color: #fff; padding: 10px 16px; border-radius: 6px; font-size: 13px; opacity: .95; }
+.toast-msg.error { background: var(--red); }
+.file-list { font-size: 12px; color: var(--text-light); margin-top: 6px; }
+.autocomplete { position: relative; }
+.autocomplete-list { position: absolute; background: #fff; border: 1px solid var(--border); border-radius: 6px; width: 100%; max-height: 180px; overflow-y: auto; z-index: 20; }
+.autocomplete-list div { padding: 6px 10px; cursor: pointer; font-size: 13px; }
+.autocomplete-list div:hover { background: #f0f6fa; }
+.email-preview { background: #f9fafb; border: 1px solid var(--border); border-radius: 8px; padding: 12px; white-space: pre-wrap; font-size: 13px; margin-top: 8px; }
+.actions-inline { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.setup-note { background: #fff8e6; border: 1px solid #f0d488; padding: 14px 16px; border-radius: 8px; margin-bottom: 18px; font-size: 14px; }
+
+/* Modale de confirmation (suppressions) */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(20,20,25,.55); z-index: 1000;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.modal-box { background: #fff; border-radius: 10px; padding: 22px 26px; max-width: 440px; width: 100%; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+.modal-box h3 { margin-top: 0; }
+.modal-box input { margin-top: 4px; }
+
+/* Chips de coéquipiers */
+.coeq-cell { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: #eef3f6; border-radius: 14px; padding: 3px 6px 3px 10px; font-size: 12px; white-space: nowrap; }
+.chip button.chip-remove { border: none; background: none; cursor: pointer; color: var(--text-light); font-size: 14px; line-height: 1; padding: 0 2px; }
+.chip button.chip-remove:hover { color: var(--red); }
+.coeq-add-select { font-size: 12px; padding: 3px 6px; width: auto; }
+
+/* Section repliable (ex: ajouter une séance) */
+.collapsible-toggle { cursor: pointer; }
+
+/* Onglets de la fiche de cours (Séances & Photos / Documents & communications / Étudiants) */
+.tabs-nav { display: flex; gap: 4px; border-bottom: 2px solid var(--border); margin: 20px 0 16px; flex-wrap: wrap; }
+.tab-btn {
+  background: none; border: none; cursor: pointer; padding: 10px 16px; font-size: 14px; font-family: inherit;
+  color: var(--text-light); border-bottom: 2px solid transparent; margin-bottom: -2px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Zone de glisser-déposer (documents généraux du cours / documents étudiant) */
+.dropzone-wrap { margin-top: 6px; }
+.dropzone {
+  border: 2px dashed var(--border); border-radius: 8px; padding: 16px; text-align: center;
+  background: #fafcfd; transition: background .15s, border-color .15s;
+}
+.dropzone.drag-over { background: #eaf4fb; border-color: var(--blue); }
+.dropzone.busy { opacity: .6; pointer-events: none; }
+.dropzone-label { font-size: 13px; color: var(--text-light); }
+.dropzone-browse { color: var(--blue); text-decoration: underline; cursor: pointer; }
+.dropzone-files { font-size: 12px; color: var(--text-light); margin-top: 8px; }

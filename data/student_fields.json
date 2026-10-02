@@ -1,0 +1,64 @@
+[
+  {
+    "id": "firstName",
+    "label": "Prénom",
+    "type": "text",
+    "required": true
+  },
+  {
+    "id": "lastName",
+    "label": "Nom",
+    "type": "text",
+    "required": true
+  },
+  {
+    "id": "address",
+    "label": "Adresse",
+    "type": "text",
+    "required": false
+  },
+  {
+    "id": "phoneHome",
+    "label": "Téléphone (maison)",
+    "type": "tel",
+    "required": false
+  },
+  {
+    "id": "phoneCell",
+    "label": "Téléphone (cellulaire)",
+    "type": "tel",
+    "required": false
+  },
+  {
+    "id": "email",
+    "label": "Email",
+    "type": "email",
+    "required": false
+  },
+  {
+    "id": "birthDate",
+    "label": "Date de naissance",
+    "type": "date",
+    "required": false
+  },
+  {
+    "id": "status",
+    "label": "Statut",
+    "type": "select",
+    "required": false,
+    "options": [
+      {
+        "value": "cours",
+        "label": "Cours"
+      },
+      {
+        "value": "certif",
+        "label": "Certification"
+      },
+      {
+        "value": "both",
+        "label": "Cours + Certification"
+      }
+    ]
+  }
+]

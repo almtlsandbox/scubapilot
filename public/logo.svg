@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="ScubaPilot">
+  <!-- Tuba (identifie la plongée/snorkeling au premier regard) -->
+  <path d="M43,19 C50,15 55,9 56,2" fill="none" stroke="#0e6ba8" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="56" cy="2.5" r="4.2" fill="#f4f7f9" stroke="#0e6ba8" stroke-width="2.4"/>
+
+  <!-- Bulles (remontée, côté opposé pour équilibrer la composition) -->
+  <circle cx="6" cy="51" r="2.6" fill="#0e6ba8" opacity="0.55"/>
+  <circle cx="3" cy="43" r="1.7" fill="#0e6ba8" opacity="0.5"/>
+  <circle cx="8" cy="36" r="1.1" fill="#0e6ba8" opacity="0.45"/>
+
+  <!-- Sangle gauche / droite -->
+  <rect x="3" y="27" width="8" height="15" rx="4" fill="#094a75"/>
+  <rect x="48" y="27" width="8" height="15" rx="4" fill="#094a75"/>
+  <!-- Jupe de nez -->
+  <rect x="20" y="47" width="19" height="11" rx="4.5" fill="#094a75"/>
+
+  <!-- Masque : un seul grand verre, silhouette immédiatement reconnaissable -->
+  <rect x="9" y="15" width="40" height="35" rx="15" fill="#094a75"/>
+  <rect x="14.5" y="20.5" width="29" height="24" rx="10.5" fill="#f4f7f9"/>
+
+  <!-- Clin d'œil "Pilot" : petite aiguille de boussole logée dans le coin du verre -->
+  <g transform="translate(33,37) rotate(-20)">
+    <polygon points="0,-7 -5,0 0,0" fill="#e2a44a"/>
+    <polygon points="0,-7 5,0 0,0" fill="#d98a1f"/>
+    <polygon points="0,7 -5,0 0,0" fill="#1f3a52"/>
+    <polygon points="0,7 5,0 0,0" fill="#13293d"/>
+    <circle cx="0" cy="0" r="1.8" fill="#f4f7f9" stroke="#13293d" stroke-width="1"/>
+  </g>
+</svg>

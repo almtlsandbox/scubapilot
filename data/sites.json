@@ -1,0 +1,20 @@
+[
+  {
+    "id": "site1",
+    "name": "Calanque de Sormiou",
+    "address": "Marseille, France",
+    "notes": ""
+  },
+  {
+    "id": "site2",
+    "name": "Île Maïre",
+    "address": "Marseille, France",
+    "notes": ""
+  },
+  {
+    "id": "site3",
+    "name": "Piscine municipale",
+    "address": "",
+    "notes": "Séances en piscine"
+  }
+]

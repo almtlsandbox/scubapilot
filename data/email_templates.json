@@ -1,0 +1,20 @@
+[
+  {
+    "id": "convocation-standard",
+    "name": "Convocation - standard",
+    "subject": "Convocation - {type_cours}",
+    "body": "Bonjour {prenom},\n\nJe vous confirme votre inscription au cours \"{type_cours}\".\n\nSéance(s) prévue(s) :\n{liste_dates_lieux}\n\nMerci de vous présenter avec les documents suivants :\n{liste_docs_pre}\n\nN'hésitez pas à me contacter pour toute question.\n\nÀ bientôt,\n{instructeur}"
+  },
+  {
+    "id": "rappel-standard",
+    "name": "Rappel - standard",
+    "subject": "Rappel - {type_cours}",
+    "body": "Bonjour {prenom},\n\nPetit rappel concernant votre cours \"{type_cours}\".\n\nSéance(s) prévue(s) :\n{liste_dates_lieux}\n\nIl me manque encore les documents suivants :\n{liste_docs_manquants}\n\nMerci de me les transmettre avant le début du cours.\n\nÀ bientôt,\n{instructeur}"
+  },
+  {
+    "id": "rappel-dernier-avis",
+    "name": "Rappel - dernier avis",
+    "subject": "Dernier rappel avant le cours - {type_cours}",
+    "body": "Bonjour {prenom},\n\nLe cours \"{type_cours}\" approche :\n{liste_dates_lieux}\n\nIl me manque toujours les documents suivants, merci de me les faire parvenir au plus vite :\n{liste_docs_manquants}\n\nSans ces documents, il pourrait ne pas être possible de vous inscrire à la séance.\n\nMerci,\n{instructeur}"
+  }
+]

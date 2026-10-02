@@ -1,0 +1,5 @@
+{
+  "currency": "CAD",
+  "default": { "basePrice": 0, "minStudents": 1, "extraStudentPrice": 0 },
+  "byType": {}
+}
