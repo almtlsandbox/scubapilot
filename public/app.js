@@ -1198,7 +1198,7 @@ function buildReportHtml(course, type) {
     const postItems = (type.postDocs || []).map(d => reportDocLine(s.postDocs && s.postDocs[d.id], d)).join('');
     return `
       <div class="student-card">
-        <h3>${escapeHtml(s.firstName)} ${escapeHtml(s.lastName)} <span class="pct">Pré ${prePct}% · Post ${postPct}%${studentHasCertification(s) ? ` · ${s.certificationConfirmed ? '✅ Certifié' : '❌ Non certifié'}${s.certifyingInstructorId ? ' (' + escapeHtml(buddyLabelById(s.certifyingInstructorId)) + ')' : ''}` : ''}</span></h3>
+        <h3>${escapeHtml(s.firstName)} ${escapeHtml(s.lastName)} <span class="pct">Pré ${prePct}% · Post ${postPct}%${studentHasCertification(s) ? ` · ${s.certificationConfirmed ? '✅ Certifié' : '❌ Non certifié'}${s.certifyingInstructorId ? ' (' + escapeHtml(buddyLabelById(s.certifyingInstructorId)) + ')' : ''}` : ` · ${s.fileTransferred ? '📁 Dossier transféré' : '📁 Dossier non transféré'}`}</span></h3>
         <div class="student-info">${infoLines || '<span class="muted">Aucune coordonnée renseignée</span>'}</div>
         <div class="two-col-print">
           <div><h4>Documents pré-cours</h4><ul>${preItems || '<li class="muted">Aucun</li>'}</ul></div>
@@ -1666,7 +1666,7 @@ async function renderStudentProfile(key) {
         <td>${course ? escapeHtml(centerLabel(course.centerId)) : '-'}</td>
         <td><span class="badge ${badgeClass(prePct)}">${prePct}%</span></td>
         <td><span class="badge ${badgeClass(postPct)}">${postPct}%</span></td>
-        <td>${studentHasCertification(record) ? (record.certificationConfirmed ? '✅ Certifié' : '❌ Non certifié') : '<span class="muted">(n/a)</span>'}</td>
+        <td>${studentHasCertification(record) ? (record.certificationConfirmed ? '✅ Certifié' : '❌ Non certifié') : (record.fileTransferred ? '📁 Dossier transféré' : '📁 Dossier non transféré')}</td>
         <td>${record.certifyingInstructorId ? escapeHtml(buddyLabelById(record.certifyingInstructorId)) : '<span class="muted">-</span>'}</td>
       </tr>
     `);
@@ -1790,7 +1790,9 @@ function renderStudentBlock(course, type, s) {
         <div>
           <span class="badge ${badgeClass(prePct)}" data-pre-badge="${escapeHtml(s.folder)}">Pré ${prePct}%</span>
           <span class="badge ${badgeClass(postPct)}" data-post-badge="${escapeHtml(s.folder)}">Post ${postPct}%</span>
-          ${studentHasCertification(s) ? `<span class="badge ${s.certificationConfirmed ? 'ok' : 'bad'}" data-certif-badge="${escapeHtml(s.folder)}">${s.certificationConfirmed ? '✅ Certifié' : '❌ Non certifié'}</span>` : ''}
+          ${studentHasCertification(s)
+            ? `<span class="badge ${s.certificationConfirmed ? 'ok' : 'bad'}" data-certif-badge="${escapeHtml(s.folder)}">${s.certificationConfirmed ? '✅ Certifié' : '❌ Non certifié'}</span>`
+            : `<span class="badge ${s.fileTransferred ? 'ok' : 'bad'}" data-transfer-badge="${escapeHtml(s.folder)}">${s.fileTransferred ? '📁 Dossier transféré' : '📁 Dossier non transféré'}</span>`}
         </div>
       </div>
       <div class="student-details"></div>
@@ -1865,7 +1867,14 @@ function buildStudentDetails(course, type, s) {
         <span class="certif-final-text">${s.certificationConfirmed ? '✅ Certification confirmée (100%)' : '❌ Certification non confirmée'}</span>
       </label>
       ${!s.certificationConfirmed && !s.certifyingInstructorId ? '<p class="muted" style="margin-top:2px">Choisissez d\'abord l\'instructeur certificateur ci-dessus.</p>' : ''}
-    </div>` : ''}
+    </div>` : `
+    <div class="certif-final">
+      <h3>Transfert de dossier</h3>
+      <label class="checklist-item certif-final-label">
+        <input type="checkbox" class="transfer-toggle" data-folder="${escapeHtml(s.folder)}" ${s.fileTransferred ? 'checked' : ''}>
+        <span class="transfer-final-text">${s.fileTransferred ? '✅ Dossier transféré' : '❌ Dossier non transféré'}</span>
+      </label>
+    </div>`}
   `;
 
   const preBox = wrap.querySelector('.pre-checklist');
@@ -1944,6 +1953,26 @@ function buildStudentDetails(course, type, s) {
       toast(certificationConfirmed ? 'Certification confirmée' : 'Certification non confirmée');
     } catch (e) {
       ev.target.checked = !certificationConfirmed;
+      toast('Erreur lors de la mise à jour : ' + friendlyError(e), true);
+    }
+  });
+
+  const transferToggle = wrap.querySelector('.transfer-toggle');
+  const transferText = wrap.querySelector('.transfer-final-text');
+  if (transferToggle) transferToggle.addEventListener('change', async (ev) => {
+    const fileTransferred = ev.target.checked;
+    try {
+      await api('PUT', `/api/courses/${encodeURIComponent(course.id)}/students/${encodeURIComponent(s.folder)}`, { fileTransferred });
+      s.fileTransferred = fileTransferred;
+      if (transferText) transferText.textContent = fileTransferred ? '✅ Dossier transféré' : '❌ Dossier non transféré';
+      const badge = document.querySelector(`[data-transfer-badge="${s.folder}"]`);
+      if (badge) {
+        badge.textContent = fileTransferred ? '📁 Dossier transféré' : '📁 Dossier non transféré';
+        badge.className = 'badge ' + (fileTransferred ? 'ok' : 'bad');
+      }
+      toast(fileTransferred ? 'Dossier marqué comme transféré' : 'Dossier marqué comme non transféré');
+    } catch (e) {
+      ev.target.checked = !fileTransferred;
       toast('Erreur lors de la mise à jour : ' + friendlyError(e), true);
     }
   });

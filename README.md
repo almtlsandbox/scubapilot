@@ -172,7 +172,7 @@ Dans les deux cas, vous pouvez aussi cliquer sur "parcourir" pour choisir un ou 
 
 Dans la fiche dépliée de chaque étudiant, une case **"🎓 Certification confirmée (100%)"** permet de marquer explicitement qu'un étudiant a bien reçu sa certification finale (distinct du % de documents collectés). Une fois cochée, un badge **"🎓 Certifié"** apparaît dans l'en-tête de l'étudiant et sur le rapport imprimable du cours.
 
-Cette case et ce badge ne s'affichent que pour un étudiant dont le statut est **"Certification"** ou **"Cours + Certification"**. Pour un étudiant en **"Cours seulement"**, la certification ne s'applique pas : ni la case, ni le badge ne sont affichés (ni dans la fiche étudiant, ni dans le rapport imprimable).
+Cette case et ce badge ne s'affichent que pour un étudiant dont le statut est **"Certification"** ou **"Cours + Certification"**. Pour un étudiant en **"Cours seulement"**, la certification ne s'applique pas ; c'est une case finale **"Transfert de dossier"** qui la remplace (badge **"📁 Dossier transféré"** / **"📁 Dossier non transféré"** dans l'en-tête de l'étudiant, la fiche étudiant globale et le rapport imprimable).
 
 **Correction (calcul des %)** : le calcul des pourcentages "Pré" et "Post" se base désormais sur la liste des documents définis par le type de cours, plutôt que sur les seules entrées déjà enregistrées pour l'étudiant. Auparavant, une fiche étudiant créée avant l'ajout d'un nouveau document au type de cours pouvait afficher à tort "100%" alors que des documents requis restaient décochés (ils étaient invisibles au calcul faute d'entrée enregistrée). Ce n'était pas une perte de données : rouvrez simplement la fiche de l'étudiant concerné, le pourcentage affiché est maintenant correct.
 
