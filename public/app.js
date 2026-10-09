@@ -1468,7 +1468,7 @@ async function openInvoiceForm(course, type) {
     const centerOpts = state.centers.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === inv.centerId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
     const groupOpts = inv.groups.map(g => `<option value="${g.id}">${escapeHtml(g.label)}</option>`).join('');
     const page = el(`<div>
-      <style>${INVOICE_CSS}.inv-edit input{width:100%;box-sizing:border-box}.inv-edit td:first-child{min-width:150px}.inv-edit td{padding:3px}.inv-grid{display:grid;grid-template-columns:minmax(380px,560px) 1fr;gap:20px;align-items:start}.inv-preview{border:1px solid var(--border,#b8c6d0);box-shadow:0 2px 8px rgba(19,41,61,.12);overflow:auto}@media(max-width:1100px){.inv-grid{grid-template-columns:1fr}}</style>
+      <style>${INVOICE_CSS}.inv-edit input{width:100%;box-sizing:border-box}.inv-edit td:first-child{min-width:120px}.inv-edit td:nth-child(5){white-space:nowrap}.inv-edit th{font-size:11px}.inv-edit td{padding:3px}.inv-grid{display:grid;grid-template-columns:minmax(460px,600px) minmax(0,1fr);gap:20px;align-items:start}.inv-preview{border:1px solid var(--border,#b8c6d0);box-shadow:0 2px 8px rgba(19,41,61,.12);overflow:auto}@media(max-width:1100px){.inv-grid{grid-template-columns:1fr}}</style>
       <button class="btn secondary small" id="inv-back">← Retour au cours</button>
       <h1>Facture — ${escapeHtml(courseTypeLabel(course.typeCode))} <span class="muted">${escapeHtml(course.id)}</span></h1>
       <div class="actions-inline" style="margin:0 0 14px">
@@ -1488,7 +1488,7 @@ async function openInvoiceForm(course, type) {
         <div class="card"><h3>2 · Groupes de tarification</h3>
           <div class="row"><div><label for="inv-icount">Nb d'instructeurs sur le cours (part = 1 ÷ n)</label><input type="number" min="1" step="1" id="inv-icount" value="${inv.instructorCount}"></div>
           <div style="align-self:flex-end"><button class="btn secondary small" id="inv-reload">↻ Tarifs du centre</button> <button class="btn secondary small" id="inv-addgroup">+ Groupe</button></div></div>
-          <table class="inv-edit" style="width:100%"><thead><tr><th>Description</th><th>Élèves</th><th>Part</th><th>Prix unit.</th><th>Total</th><th></th></tr></thead><tbody id="inv-groups"></tbody></table>
+          <table class="inv-edit" style="width:100%"><thead><tr><th>Description</th><th>Nb</th><th>Part</th><th>Prix unit.</th><th>Total</th><th></th></tr></thead><tbody id="inv-groups"></tbody></table>
         </div>
         <div class="card"><h3>3 · Étudiants (issus du cours)</h3>
           ${(course.students || []).length ? '' : '<p class="muted">Aucun étudiant dans ce cours.</p>'}
@@ -1515,8 +1515,8 @@ async function openInvoiceForm(course, type) {
       const tr = el(`<table><tbody><tr data-i="${i}">
         <td><input class="g-label" aria-label="Description groupe ${i + 1}" value="${escapeHtml(g.label)}"></td>
         <td class="g-count">0</td>
-        <td style="width:70px"><input class="g-share" aria-label="Part groupe ${i + 1}" value="${fmtNum(g.share)}"></td>
-        <td style="width:90px"><input class="g-price" aria-label="Prix groupe ${i + 1}" value="${String(g.price).replace('.', ',')}"></td>
+        <td style="width:62px"><input class="g-share" aria-label="Part groupe ${i + 1}" value="${fmtNum(g.share)}"></td>
+        <td style="width:74px"><input class="g-price" aria-label="Prix groupe ${i + 1}" value="${String(g.price).replace('.', ',')}"></td>
         <td class="g-total" style="text-align:right"></td>
         <td><button class="btn danger small g-del" aria-label="Supprimer le groupe ${i + 1}" ${inv.groups.length < 2 ? 'disabled' : ''}>✕</button></td></tr></tbody></table>`).querySelector('tr');
       gbody.appendChild(tr);
@@ -1594,7 +1594,12 @@ async function openInvoiceForm(course, type) {
         tr.querySelector('.g-count').textContent = calc.lines[i].count;
         tr.querySelector('.g-total').textContent = fmtMoney(calc.lines[i].total);
       });
-      page.querySelector('#inv-preview').innerHTML = invoiceInnerHtml(course, inv, calc, '');
+      const pv = page.querySelector('#inv-preview');
+      pv.innerHTML = invoiceInnerHtml(course, inv, calc, '');
+      // Aperçu à l'échelle : la feuille garde sa largeur Letter (816 px) et est réduite pour tenir dans la colonne.
+      const sheet = pv.firstElementChild, w = pv.clientWidth || 816, k = Math.min(1, w / 816);
+      sheet.style.width = '816px'; sheet.style.transformOrigin = 'top left'; sheet.style.transform = `scale(${k})`;
+      pv.style.height = Math.ceil(sheet.offsetHeight * k) + 'px'; pv.style.overflow = 'hidden';
     }
     refresh();
   }

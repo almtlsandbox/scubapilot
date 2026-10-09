@@ -92,6 +92,13 @@ Le numéro de version est affiché en bas de la barre latérale (« ScubaPilot v
 
 Faites ces étapes dans l'ordre la première fois (menu **Paramètres**).
 
+![Paramètres : répertoire racine, sauvegarde et vos coordonnées](images/parametres-haut.jpg)
+*Paramètres : répertoire racine, sauvegarde et vos coordonnées*
+
+![Paramètres : centres partenaires](images/parametres-centres.jpg)
+*Paramètres : centres partenaires*
+
+
 1. **Répertoire racine** — Indiquez le dossier où seront rangés tous vos cours et documents (ex. `D:\Plongee\Instructeur`). Cliquez sur « Créer si absent » s'il n'existe pas encore. Choisissez un dossier que vous sauvegardez régulièrement.
 2. **Vos coordonnées** — Nom, numéro PADI (ex. `PADI MSDT / Instructor #568575`), **adresse**, téléphone, courriel. Ces informations servent aux emails et à l'en-tête des factures. C'est aussi ici que vous réglez vos CC/BCC par défaut pour l'email groupé.
 3. **Centres partenaires** — Ajoutez au moins un centre (nom, contact, adresse, courriel, téléphone, n° de taxe ou référence). **Un centre est obligatoire pour créer un cours.**
@@ -106,6 +113,10 @@ Vous êtes prêt : créez votre premier cours.
 ### 5.1 Tableau de bord
 
 Page d'accueil. Elle présente deux listes :
+
+![Le tableau de bord](images/tableau-de-bord.jpg)
+*Le tableau de bord*
+
 
 - **À venir** : le prochain cours en haut, du plus proche au plus lointain ;
 - **Cours passés** : du plus récent au plus ancien, grisés. Un cours est « passé » quand sa dernière séance est antérieure à aujourd'hui.
@@ -126,6 +137,10 @@ Le bouton **« 📋 Sommaire des activités accomplies »** ouvre un rapport imp
 
 Menu **+ Nouveau cours** :
 
+![Le formulaire de nouveau cours](images/nouveau-cours.jpg)
+*Le formulaire de nouveau cours*
+
+
 1. Choisissez le **type de cours** (OWD, Rescue, etc.).
 2. Choisissez le **centre mandataire** (obligatoire).
 3. Entrez la **date** de la première séance (saisie continue `JJ/MM/AAAA` : tapez les 8 chiffres, les `/` s'insèrent seuls), l'heure, le site.
@@ -137,6 +152,16 @@ Le cours est créé dans votre répertoire racine sous le nom `TYPE_DATE` (ex. `
 ### 5.3 La fiche d'un cours
 
 En haut : dates, sites, centre, instructeurs, dossier, pourcentages globaux de documents pré/post-cours et les actions (modifier, exporter le rapport, **🧾 Facture**, supprimer, marquer complété). Dessous, trois onglets (l'onglet actif est conservé lors des rafraîchissements) :
+
+![Fiche de cours : onglet Séances & Photos](images/cours-seances.jpg)
+*Fiche de cours : onglet Séances & Photos*
+
+![Fiche de cours : onglet Documents & communications](images/cours-documents.jpg)
+*Fiche de cours : onglet Documents & communications*
+
+![Fiche de cours : onglet Étudiants](images/cours-etudiants.jpg)
+*Fiche de cours : onglet Étudiants*
+
 
 **Séances & Photos**
 - Un cours peut avoir **plusieurs séances** (théorie, piscine, fosse, mer…), chacune avec date, heure de début, heure de fin, site et notes. La **durée** est calculée automatiquement et la durée totale du cours s'affiche en haut.
@@ -162,6 +187,13 @@ Dans l'onglet **Étudiants** :
 
 Dépliez l'étudiant pour voir :
 
+![Étudiant avec certification : instructeur certificateur et certification confirmée](images/etudiant-certification.jpg)
+*Étudiant avec certification : instructeur certificateur et certification confirmée*
+
+![Étudiant « cours seulement » : transfert de dossier](images/etudiant-transfert.jpg)
+*Étudiant « cours seulement » : transfert de dossier*
+
+
 - ses **coordonnées**, son **âge** calculé à partir de la date de naissance, et son **statut** : *Cours seulement*, *Certification* ou *Cours + Certification* (les libellés sont modifiables dans Paramètres) ;
 - un badge **⚠ Infos incomplètes** s'il manque un téléphone, un courriel ou une date de naissance (survolez le badge pour voir quoi) ;
 - la **checklist pré-cours et post-cours** : cochez les cases au fur et à mesure (vous pouvez enchaîner les clics sans rechargement). Une date est enregistrée à chaque réception ;
@@ -182,6 +214,10 @@ Les pourcentages « Pré » et « Post » sont calculés à partir de la liste d
 ### 5.7 La fiche étudiant globale
 
 Un même étudiant peut suivre plusieurs cours. Sa **fiche globale** (lien à côté de son nom, ou via la recherche du tableau de bord) réunit :
+
+![La fiche étudiant globale](images/fiche-globale.jpg)
+*La fiche étudiant globale*
+
 
 - l'**historique** de tous ses cours (date, type, centre, % pré/post, certification ou transfert, instructeur certificateur), cliquable ;
 - ses **coordonnées** les plus récentes. Le bouton **« Mettre à jour partout »** reporte une correction (ex. un nouveau numéro de téléphone) dans le dossier de l'étudiant de chacun de ses cours.
@@ -262,6 +298,10 @@ Le dernier contrôle d'un étudiant dépend de son **statut**.
 
 Dans **Paramètres → Facturation** :
 
+![Paramètres : facturation (taxes, étampe, grilles de tarifs)](images/parametres-facturation.jpg)
+*Paramètres : facturation (taxes, étampe, grilles de tarifs)*
+
+
 - **Devise** (CAD par défaut) ;
 - **Taxes** : deux taxes avec libellé et taux (T.P.S. 5 % et T.V.Q. 9,975 % au départ). Elles ne s'appliquent que si vous les cochez sur une facture ;
 - **Message de pied de page** (« MERCI DE VOTRE CONFIANCE ! ») ;
@@ -273,6 +313,10 @@ N'oubliez pas votre **adresse** dans « Vos coordonnées » : elle figure en en-
 ### 9.2 Produire une facture
 
 Sur la fiche du cours, bouton **🧾 Facture**. L'éditeur affiche les paramètres à gauche et un **aperçu en direct** à droite.
+
+![L'éditeur de facture avec aperçu en direct](images/facture-editeur.jpg)
+*L'éditeur de facture avec aperçu en direct*
+
 
 1. **En-tête** — Centre à facturer (celui du cours par défaut ; changer de centre recharge ses tarifs tant que vous n'avez pas modifié les groupes), numéro (suggéré automatiquement : `ANNÉE-001`, `ANNÉE-002`…), date, « Réf. Cours » (préremplie avec le type et les dates, modifiable).
 2. **Groupes de tarification** — Pour chaque groupe : description, **part**, prix unitaire. Le total d'un groupe = nombre d'étudiants × part × prix. La part est proposée à **1 ÷ nombre d'instructeurs** (2 instructeurs → 0,5) ; modifiez le champ « Nb d'instructeurs » (toutes les parts sont recalculées) ou chaque part individuellement. Boutons **+ Groupe**, **↻ Tarifs du centre** (recharge la grille) et ✕ pour retirer un groupe.
@@ -286,6 +330,10 @@ Exemple : 6 étudiants « Cours complet » (0,5 × 120 $ = 360 $) et 4 étudiant
 - **Enregistrer le brouillon** : conserve la facture avec le cours ; vous pouvez la rouvrir et la modifier.
 - **Imprimer / PDF** : enregistre puis ouvre la facture (format Letter) dans un nouvel onglet. Cliquez sur « Imprimer / Enregistrer en PDF » et choisissez **Enregistrer en PDF** comme imprimante. Si rien ne s'ouvre, autorisez les popups pour `localhost`.
 - **Courriel au centre** : ouvre un courriel adressé au centre, objet et message prêts. **Joignez-y le PDF** produit à l'étape précédente.
+
+![La facture imprimée (format Letter)](images/facture-imprimee.jpg)
+*La facture imprimée (format Letter)*
+
 
 Le numéro suggéré n'avance que lorsque vous enregistrez une facture avec ce numéro ; si vous le modifiez à la main, le compteur n'est pas touché.
 

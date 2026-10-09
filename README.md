@@ -6,7 +6,8 @@ Application **locale** (aucune donnée envoyée sur internet) pour un instructeu
 
 ## 📖 Documentation
 
-**➡️ [Guide complet : de l'installation à l'utilisation](docs/GUIDE.md)**
+**➡️ [Guide complet : de l'installation à l'utilisation](docs/GUIDE.md)**  
+**📄 [Version PDF illustrée (captures d’écran)](docs/ScubaPilot-Guide-v1.2.pdf)**
 
 Aide-mémoire : [installation](docs/GUIDE.md#2-installation) · [premiers pas](docs/GUIDE.md#4-configuration-initiale-premiers-pas) · [facturation](docs/GUIDE.md#9-facturation) · [sauvegarde](docs/GUIDE.md#13-sauvegarde) · [mise à jour](docs/GUIDE.md#14-mise-à-jour-de-lapplication) · [dépannage](docs/GUIDE.md#15-dépannage)
 
