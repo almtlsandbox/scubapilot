@@ -7,7 +7,9 @@ const { exec, execFile } = require('child_process');
 const app = express();
 // Limite relevée : les documents glissés-déposés sont envoyés en base64 dans le corps JSON.
 app.use(express.json({ limit: '25mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+// no-cache : le navigateur revalide à chaque chargement, pour qu'une mise à jour de l'application
+// (public/app.js) soit visible tout de suite sans devoir vider le cache.
+app.use(express.static(path.join(__dirname, 'public'), { setHeaders: res => res.setHeader('Cache-Control', 'no-cache') }));
 
 const DATA_DIR = path.join(__dirname, 'data');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');

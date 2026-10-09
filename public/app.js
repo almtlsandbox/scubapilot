@@ -1760,8 +1760,18 @@ function studentMissingInfo(s) {
 
 // La certification ne s'applique pas à un étudiant inscrit en "Cours seulement" (statut "cours") :
 // pas de case "Certification confirmée" à afficher dans ce cas, ni de badge associé.
+// Le statut est reconnu par sa valeur ("cours") OU par son libellé (ex: une option renommée
+// "Cours seulement" dans Paramètres a une valeur différente, générée à partir du libellé).
+function studentIsCourseOnly(s) {
+  if (!s.status) return false;
+  if (s.status === 'cours') return true;
+  const field = state.studentFields.find(f => f.id === 'status');
+  const opt = field && (field.options || []).find(o => o.value === s.status);
+  const label = ((opt && opt.label) || String(s.status)).toLowerCase();
+  return label.includes('cours') && !label.includes('certif');
+}
 function studentHasCertification(s) {
-  return s.status !== 'cours';
+  return !studentIsCourseOnly(s);
 }
 
 // Clé utilisée pour regrouper les dossiers étudiant d'un même nom à travers tous les cours (il n'y a
