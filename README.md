@@ -1,6 +1,6 @@
 # ScubaPilot
 
-Version 1.0 — Septembre 2026
+Version 1.1 — Octobre 2026
 
 Application **locale** (aucune donnée envoyée sur internet) pour gérer votre activité d'instructeur de plongée indépendant : cours, étudiants, checklist de documents à collecter, et génération d'emails.
 

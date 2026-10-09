@@ -1,6 +1,6 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.0';
-const APP_RELEASE = 'Septembre 2026';
+const APP_VERSION = '1.1';
+const APP_RELEASE = 'Octobre 2026';
 
 const state = { settings: null, courseTypes: [], sites: [], studentFields: [], emailTemplates: [], buddies: [], centers: [], billing: null };
 
