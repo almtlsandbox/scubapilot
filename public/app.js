@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.1';
+const APP_VERSION = '1.2';
 const APP_RELEASE = 'Octobre 2026';
 
 const state = { settings: null, courseTypes: [], sites: [], studentFields: [], emailTemplates: [], buddies: [], centers: [], billing: null };
@@ -234,7 +234,7 @@ async function loadRefs(force) {
     api('GET', '/api/centers'),
     api('GET', '/api/billing')
   ]);
-  Object.assign(state, { settings, courseTypes, sites, studentFields, emailTemplates, buddies, centers, billing });
+  Object.assign(state, { settings, courseTypes, sites, studentFields, emailTemplates, buddies, centers, billing: normBilling(billing) });
   refsLoaded = true;
 }
 
@@ -1295,160 +1295,325 @@ function exportReport(course, type) {
 }
 
 // ---------- Facturation ----------
-// Modèle : pour chaque type de cours, un prix de base couvrant un nombre minimum d'étudiants,
-// plus un montant par étudiant additionnel au-delà de ce minimum. Un modèle par défaut s'applique
-// si aucun modèle spécifique n'est défini pour ce type de cours.
-function billingModelFor(typeCode) {
-  const billing = state.billing || { default: {}, byType: {} };
-  return (billing.byType && billing.byType[typeCode]) || billing.default || { basePrice: 0, minStudents: 0, extraStudentPrice: 0 };
+// Une facture par cours (stockée dans course.invoice) : groupes de tarification (description, part,
+// prix unitaire), étudiants issus du cours affectés à un groupe, taxes optionnelles, lignes
+// supplémentaires, logo et étampe. Les tarifs par défaut viennent de Paramètres → Facturation
+// (grilles par centre et/ou type de cours), mais tout est modifiable sur la facture elle-même.
+function normBilling(b) {
+  b = Object.assign({}, b || {});
+  b.currency = b.currency || 'CAD';
+  b.taxes = b.taxes || {};
+  b.taxes.tps = Object.assign({ label: 'T.P.S.', rate: 5 }, b.taxes.tps || {});
+  b.taxes.tvq = Object.assign({ label: 'T.V.Q.', rate: 9.975 }, b.taxes.tvq || {});
+  b.priceLists = Array.isArray(b.priceLists) ? b.priceLists : [];
+  b.footer = b.footer !== undefined ? b.footer : 'MERCI DE VOTRE CONFIANCE !';
+  b.counter = b.counter || { year: 0, last: 0 };
+  return b;
 }
-function computeInvoiceTotal(studentCount, model, extraFeeAmount) {
-  const base = model.basePrice || 0;
-  const min = model.minStudents || 0;
-  const extraPrice = model.extraStudentPrice || 0;
-  const extraCount = Math.max(0, studentCount - min);
-  const extraStudentsTotal = extraCount * extraPrice;
-  const fee = extraFeeAmount || 0;
-  return { base, min, extraPrice, extraCount, extraStudentsTotal, fee, total: base + extraStudentsTotal + fee };
+function fmtNum(n) { return String(Math.round(n * 10000) / 10000).replace('.', ','); }
+function fmtMoney(n) {
+  const cur = (state.billing && state.billing.currency) || 'CAD';
+  const sym = (cur === 'CAD' || cur === 'USD') ? '$' : cur;
+  return (Number(n) || 0).toLocaleString('fr-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + sym;
 }
-
-function openInvoiceForm(course, type) {
-  const center = centerById(course.centerId);
-  const model = billingModelFor(course.typeCode);
-  const studentCount = course.students.length;
-  const calc = computeInvoiceTotal(studentCount, model, course.invoiceExtraAmount);
-  const centerOptions = state.centers.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === course.centerId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
-  const box = el(`
-    <div class="card">
-      <h2>Générer une facture</h2>
-      ${!center ? `<p class="muted">Astuce : associez un centre à ce cours pour préremplir automatiquement l'en-tête de la facture.</p>` : ''}
-      <div class="row">
-        <div><label for="inv-center">Facturer à (centre)</label><select id="inv-center">${centerOptions}</select></div>
-        <div><label for="inv-number">Numéro de facture</label><input id="inv-number" value="${escapeHtml(course.invoiceNumber || course.id)}"></div>
-        <div><label for="inv-date">Date de facture</label><input type="date" id="inv-date" value="${escapeHtml(course.invoiceDate || todayISO())}"></div>
-      </div>
-      <p class="muted">Modèle de facturation (${escapeHtml(courseTypeLabel(course.typeCode))}) : prix de base ${calc.base} $ pour ${calc.min} étudiant(s) minimum, puis ${calc.extraPrice} $ par étudiant additionnel. Modifiable dans Paramètres → Facturation.</p>
-      <div class="row">
-        <div><label for="inv-fee-desc">Frais additionnels (optionnel, description)</label><input id="inv-fee-desc" value="${escapeHtml(course.invoiceExtraDesc || '')}"></div>
-        <div><label for="inv-fee-amount">Montant des frais additionnels</label><input type="number" step="0.01" id="inv-fee-amount" value="${course.invoiceExtraAmount || ''}"></div>
-      </div>
-      <label for="inv-notes">Notes de facturation (optionnel)</label>
-      <textarea id="inv-notes">${escapeHtml(course.invoiceNotes || '')}</textarea>
-      <div class="actions-inline">
-        <button class="btn" id="inv-generate">🧾 Générer et ouvrir la facture</button>
-        <button class="btn secondary" id="inv-cancel">Annuler</button>
-      </div>
-    </div>
-  `);
-  document.getElementById('app').insertBefore(box, document.getElementById('app').children[1]);
-  box.scrollIntoView({ behavior: 'smooth' });
-  document.getElementById('inv-cancel').addEventListener('click', () => box.remove());
-  document.getElementById('inv-generate').addEventListener('click', async (ev) => {
-    const invoiceCenterId = document.getElementById('inv-center').value;
-    const invoiceNumber = document.getElementById('inv-number').value;
-    const invoiceDate = document.getElementById('inv-date').value;
-    const invoiceExtraDesc = document.getElementById('inv-fee-desc').value;
-    const invoiceExtraAmount = parseFloat(document.getElementById('inv-fee-amount').value) || 0;
-    const invoiceNotes = document.getElementById('inv-notes').value;
-    const payload = { invoiceNumber, invoiceDate, invoiceExtraDesc, invoiceExtraAmount, invoiceNotes };
-    await withBusy(ev.currentTarget, async () => {
-      try {
-        await api('PUT', `/api/courses/${encodeURIComponent(course.id)}`, payload);
-        Object.assign(course, payload);
-        const invoiceCenter = centerById(invoiceCenterId) || center;
-        exportInvoice(course, type, invoiceCenter);
-        toast('Facture générée');
-      } catch (e) {
-        toast('Erreur lors de la génération de la facture : ' + friendlyError(e), true);
-      }
-    }, 'Génération en cours...');
+function suggestInvoiceNumber() {
+  const y = new Date().getFullYear();
+  const c = state.billing.counter || {};
+  const last = c.year === y ? (c.last || 0) : 0;
+  return `${y}-${String(last + 1).padStart(3, '0')}`;
+}
+// Grille de tarifs la plus spécifique : centre+type, centre, type, générale.
+function pickPriceGroups(centerId, typeCode) {
+  const lists = state.billing.priceLists || [];
+  const score = l => {
+    if (l.centerId && l.centerId !== centerId) return -1;
+    if (l.typeCode && l.typeCode !== typeCode) return -1;
+    return (l.centerId ? 2 : 0) + (l.typeCode ? 1 : 0);
+  };
+  let best = null, bs = -1;
+  lists.forEach(l => { const s = score(l); if (s > bs) { bs = s; best = l; } });
+  const groups = best && (best.groups || []).length ? best.groups : [{ label: 'Cours complet', price: 0 }];
+  return groups.map((g, i) => ({ id: 'g' + (i + 1), label: g.label || '', price: Number(g.price) || 0 }));
+}
+function defaultInvoice(course) {
+  const n = Math.max(1, (course.instructorIds || []).length);
+  const share = Math.round(10000 / n) / 10000;
+  const groups = pickPriceGroups(course.centerId, course.typeCode).map(g => Object.assign(g, { share }));
+  const sessions = (course.sessions || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  let range = '';
+  if (sessions.length) {
+    range = sessions.length === 1 || sessions[0].date === sessions[sessions.length - 1].date
+      ? ' du ' + humanDate(sessions[0].date)
+      : ' du ' + humanDate(sessions[0].date) + ' au ' + humanDate(sessions[sessions.length - 1].date);
+  }
+  const names = courseInstructors(course).map(b => b.name).filter(Boolean);
+  const assign = {};
+  (course.students || []).forEach(s => { assign[s.folder] = groups[0].id; });
+  return {
+    centerId: course.centerId || '',
+    number: course.invoiceNumber || suggestInvoiceNumber(),
+    date: course.invoiceDate || todayISO(),
+    ref: courseTypeLabel(course.typeCode) + range,
+    instructorCount: n,
+    groups, assign, listNames: true,
+    tps: false, tvq: false, showLogo: true, showStamp: true,
+    note: names.filter(x => x.trim().toLowerCase() !== (state.settings.instructorName || '').trim().toLowerCase()).length ? `Cours ${courseTypeLabel(course.typeCode)} avec ${names.filter(x => x.trim().toLowerCase() !== (state.settings.instructorName || '').trim().toLowerCase()).join(', ')}` : '',
+    extras: [], groupsEdited: false
+  };
+}
+function computeInvoice(course, inv) {
+  const students = course.students || [];
+  const lines = inv.groups.map(g => {
+    const members = students.filter(s => inv.assign[s.folder] === g.id);
+    const count = members.length;
+    const share = Number(g.share) || 0, price = Number(g.price) || 0;
+    return { g, members, count, share, price, total: count * share * price };
   });
+  const extras = (inv.extras || []).map(x => ({ label: x.label, amount: Number(x.amount) || 0 }));
+  const subtotal = lines.reduce((a, l) => a + l.total, 0) + extras.reduce((a, x) => a + x.amount, 0);
+  const t = state.billing.taxes;
+  const tps = inv.tps ? Math.round(subtotal * t.tps.rate) / 100 : 0;
+  const tvq = inv.tvq ? Math.round(subtotal * t.tvq.rate) / 100 : 0;
+  return { lines, extras, subtotal, tps, tvq, total: subtotal + tps + tvq };
+}
+const INVOICE_CSS = `
+.inv-sheet{background:#fff;color:#13293d;font-family:system-ui,'Segoe UI',Arial,sans-serif;font-size:13px;padding:40px 48px;box-sizing:border-box;position:relative;min-height:980px}
+.inv-sheet .inv-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px}
+.inv-sheet .inv-from{line-height:1.5}
+.inv-sheet .inv-from b{font-size:16px}
+.inv-sheet .inv-right{text-align:right}
+.inv-sheet .inv-logo{width:56px;height:56px}
+.inv-sheet .inv-title{font-size:30px;font-weight:700;letter-spacing:4px;color:#094a75;margin-top:6px}
+.inv-sheet .inv-meta{line-height:1.5}
+.inv-sheet .inv-client{margin-top:22px;padding:12px 14px;background:#eef3f6;line-height:1.5}
+.inv-sheet .inv-client small{display:block;font-size:11px;letter-spacing:1px;color:#4a6071}
+.inv-sheet .inv-ref{margin-top:16px}
+.inv-sheet table{width:100%;border-collapse:collapse;margin-top:12px}
+.inv-sheet th{background:#094a75;color:#fff;padding:7px 9px;text-align:left;font-weight:600}
+.inv-sheet td{padding:9px;border-bottom:1px solid #d5dee5;vertical-align:top}
+.inv-sheet .r{text-align:right;white-space:nowrap}
+.inv-sheet .c{text-align:center;white-space:nowrap}
+.inv-sheet .names{font-size:11.5px;color:#4a6071}
+.inv-sheet .inv-note{margin-top:10px;font-size:12px;color:#4a6071}
+.inv-sheet .inv-totals{display:flex;justify-content:flex-end;margin-top:18px}
+.inv-sheet .inv-totals table{width:290px;margin:0}
+.inv-sheet .inv-totals td{border:0;padding:5px 9px}
+.inv-sheet .inv-totals tr.grand td{background:#094a75;color:#fff;font-weight:700;font-size:15px;padding:8px 9px}
+.inv-sheet .inv-stamp{display:block;margin:26px 0 0 auto;max-width:200px;max-height:110px;transform:rotate(-3deg)}
+.inv-sheet .inv-foot{margin-top:34px;text-align:center;font-weight:700;letter-spacing:2px;color:#094a75}
+`;
+function invoiceInnerHtml(course, inv, calc, base) {
+  const s = state.settings || {};
+  const center = centerById(inv.centerId);
+  const fromBits = [s.instructorPadi, s.instructorAddress, [s.instructorPhone, s.instructorEmail].filter(Boolean).join(' · ')].filter(Boolean);
+  const stamp = inv.showStamp && state.stamp ? `<img class="inv-stamp" src="${state.stamp}" alt="Étampe">` : '';
+  const rows = calc.lines.filter(l => l.count > 0 || calc.lines.length === 1).map(l => `
+    <tr><td><b>${escapeHtml(l.g.label)}</b>${inv.listNames && l.members.length ? `<div class="names">${l.members.map(m => escapeHtml(m.firstName + ' ' + m.lastName)).join(', ')}</div>` : ''}</td>
+    <td class="c">${l.count} × ${fmtNum(l.share)}</td><td class="r">${fmtMoney(l.price)}</td><td class="r">${fmtMoney(l.total)}</td></tr>`).join('');
+  const extraRows = calc.extras.filter(x => x.label || x.amount).map(x => `<tr><td>${escapeHtml(x.label)}</td><td class="c">1</td><td class="r">${fmtMoney(x.amount)}</td><td class="r">${fmtMoney(x.amount)}</td></tr>`).join('');
+  const taxRow = (on, t, amt) => `<tr><td>${escapeHtml(t.label)}${on ? ' (' + fmtNum(t.rate) + ' %)' : ''}</td><td class="r">${on ? fmtMoney(amt) : '—'}</td></tr>`;
+  return `<div class="inv-sheet">
+    <div class="inv-head">
+      <div class="inv-from"><b>${escapeHtml(s.instructorName || '')}</b>${fromBits.map(b => '<div>' + escapeHtml(b) + '</div>').join('')}</div>
+      <div class="inv-right">${inv.showLogo ? `<img class="inv-logo" src="${base}logo.svg" alt="">` : ''}</div>
+    </div>
+    <div class="inv-head" style="margin-top:14px;align-items:flex-end">
+      <div class="inv-title">FACTURE</div>
+      <div class="inv-meta inv-right">Date : ${escapeHtml(humanDate(inv.date))}<br>N° : ${escapeHtml(inv.number)}</div>
+    </div>
+    <div class="inv-client"><small>CLIENT</small>${center ? `<b>${escapeHtml(center.name)}</b>
+      ${center.contactName ? `<div>Att. : ${escapeHtml(center.contactName)}</div>` : ''}
+      ${center.address ? `<div>${escapeHtml(center.address)}</div>` : ''}
+      ${center.phone ? `<div>${escapeHtml(center.phone)}</div>` : ''}
+      ${center.taxId ? `<div>${escapeHtml(center.taxId)}</div>` : ''}` : '<i>(centre non défini)</i>'}</div>
+    ${inv.ref ? `<div class="inv-ref"><b>Réf. Cours :</b> ${escapeHtml(inv.ref)}</div>` : ''}
+    <table><thead><tr><th>Descriptions / Noms étudiants</th><th class="c">Nombre étudiants</th><th class="r">Prix unitaire</th><th class="r">Total</th></tr></thead>
+    <tbody>${rows}${extraRows}</tbody></table>
+    ${inv.note ? `<div class="inv-note">${escapeHtml(inv.note)}</div>` : ''}
+    <div class="inv-totals"><table>
+      <tr><td>SOUS-TOTAL</td><td class="r">${fmtMoney(calc.subtotal)}</td></tr>
+      ${taxRow(inv.tps, state.billing.taxes.tps, calc.tps)}${taxRow(inv.tvq, state.billing.taxes.tvq, calc.tvq)}
+      <tr class="grand"><td>TOTAL</td><td class="r">${fmtMoney(calc.total)}</td></tr></table></div>
+    ${stamp}
+    <div class="inv-foot">${escapeHtml(state.billing.footer || '')}</div>
+  </div>`;
 }
 
-function exportInvoice(course, type, center) {
-  const model = billingModelFor(course.typeCode);
-  const studentCount = course.students.length;
-  const calc = computeInvoiceTotal(studentCount, model, course.invoiceExtraAmount);
-  const currency = (state.billing && state.billing.currency) || 'CAD';
-  const generatedAt = new Date().toLocaleString('fr-FR');
-  const instructorLine1 = `${escapeHtml(state.settings.instructorName || '')}${state.settings.instructorPadi ? ' — ' + escapeHtml(state.settings.instructorPadi) : ''}`;
-  const contactBits = [state.settings.instructorEmail, state.settings.instructorPhone].filter(Boolean).map(escapeHtml).join(' · ');
-
-  const lineRows = [
-    `<tr><td>${escapeHtml(courseTypeLabel(course.typeCode))} — forfait de base (jusqu'à ${calc.min} étudiant(s))</td><td class="num">1</td><td class="num">${calc.base.toFixed(2)} ${currency}</td><td class="num">${calc.base.toFixed(2)} ${currency}</td></tr>`
-  ];
-  if (calc.extraCount > 0) {
-    lineRows.push(`<tr><td>Étudiant(s) additionnel(s) au-delà de ${calc.min}</td><td class="num">${calc.extraCount}</td><td class="num">${calc.extraPrice.toFixed(2)} ${currency}</td><td class="num">${calc.extraStudentsTotal.toFixed(2)} ${currency}</td></tr>`);
+async function openInvoiceForm(course, type) {
+  if (state.stamp === undefined) {
+    try { state.stamp = (await api('GET', '/api/stamp')).dataUrl || ''; } catch (e) { state.stamp = ''; }
   }
-  if (calc.fee > 0) {
-    lineRows.push(`<tr><td>${escapeHtml(course.invoiceExtraDesc || 'Frais additionnels')}</td><td class="num">1</td><td class="num">${calc.fee.toFixed(2)} ${currency}</td><td class="num">${calc.fee.toFixed(2)} ${currency}</td></tr>`);
+  const inv = Object.assign(defaultInvoice(course), course.invoice || {});
+  inv.groups = (inv.groups || []).map(g => Object.assign({}, g));
+  inv.assign = Object.assign({}, inv.assign);
+  inv.extras = (inv.extras || []).map(x => Object.assign({}, x));
+  (course.students || []).forEach(s => { if (!inv.groups.some(g => g.id === inv.assign[s.folder])) inv.assign[s.folder] = inv.groups[0] ? inv.groups[0].id : ''; });
+  const app = document.getElementById('app');
+  const T = state.billing.taxes;
+  const inp = 'style="width:100%"';
+
+  async function save(btn) {
+    const payload = { invoice: inv, invoiceNumber: inv.number, invoiceDate: inv.date };
+    await api('PUT', `/api/courses/${encodeURIComponent(course.id)}`, payload);
+    Object.assign(course, payload);
+    if (inv.number === suggestInvoiceNumber()) {
+      const y = new Date().getFullYear(), c = state.billing.counter || {};
+      state.billing.counter = { year: y, last: (c.year === y ? c.last || 0 : 0) + 1 };
+      await api('PUT', '/api/billing', state.billing);
+    }
   }
 
-  const html = `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<title>Facture ${escapeHtml(course.invoiceNumber || course.id)}</title>
-<style>
-  body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; margin: 0; padding: 30px 40px; }
-  h1 { font-size: 24px; margin: 0 0 4px; }
-  .muted { color: #777; }
-  .header-row { display: flex; justify-content: space-between; margin-bottom: 24px; }
-  .header-row .block { max-width: 45%; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0; }
-  th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; }
-  th { background: #f2f5f7; }
-  .num { text-align: right; white-space: nowrap; }
-  .total-row td { font-weight: bold; background: #f2f5f7; }
-  .print-bar { margin-bottom: 20px; }
-  .print-bar button { padding: 9px 18px; font-size: 14px; cursor: pointer; border-radius: 6px; border: none; background: #0e6ba8; color: #fff; }
-  @media print { .print-bar { display: none; } body { padding: 10px 20px; } }
-</style>
-</head>
-<body>
-  <div class="print-bar"><button onclick="window.print()">🖨️ Imprimer / Enregistrer en PDF</button></div>
-  <h1>Facture</h1>
-  <div class="header-row">
-    <div class="block">
-      <h3>De</h3>
-      ${instructorLine1.trim() ? `<div>${instructorLine1}</div>` : ''}
-      ${contactBits ? `<div class="muted">${contactBits}</div>` : ''}
-    </div>
-    <div class="block">
-      <h3>Facturé à</h3>
-      ${center ? `
-        <div><strong>${escapeHtml(center.name)}</strong></div>
-        ${center.contactName ? `<div>${escapeHtml(center.contactName)}</div>` : ''}
-        ${center.address ? `<div>${escapeHtml(center.address)}</div>` : ''}
-        ${center.email ? `<div>${escapeHtml(center.email)}</div>` : ''}
-        ${center.phone ? `<div>${escapeHtml(center.phone)}</div>` : ''}
-        ${center.taxId ? `<div class="muted">${escapeHtml(center.taxId)}</div>` : ''}
-      ` : '<div class="muted">(centre non défini)</div>'}
-    </div>
-  </div>
-  <div class="row" style="display:flex; gap:30px; margin-bottom:10px">
-    <div><span class="muted">N° de facture :</span> ${escapeHtml(course.invoiceNumber || course.id)}</div>
-    <div><span class="muted">Date :</span> ${course.invoiceDate ? humanDate(course.invoiceDate) : generatedAt}</div>
-    <div><span class="muted">Cours :</span> ${escapeHtml(course.id)}</div>
-    <div><span class="muted">Étudiants :</span> ${studentCount}</div>
-  </div>
-  <table>
-    <thead><tr><th>Description</th><th class="num">Qté</th><th class="num">Prix unitaire</th><th class="num">Montant</th></tr></thead>
-    <tbody>
-      ${lineRows.join('')}
-      <tr class="total-row"><td colspan="3">Total</td><td class="num">${calc.total.toFixed(2)} ${currency}</td></tr>
-    </tbody>
-  </table>
-  ${course.invoiceNotes ? `<div><h3>Notes</h3><p>${escapeHtml(course.invoiceNotes)}</p></div>` : ''}
-  <div class="muted" style="margin-top:20px">Généré le ${generatedAt}</div>
-</body>
-</html>`;
+  function build() {
+    app.innerHTML = '';
+    const centerOpts = state.centers.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === inv.centerId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+    const groupOpts = inv.groups.map(g => `<option value="${g.id}">${escapeHtml(g.label)}</option>`).join('');
+    const page = el(`<div>
+      <style>${INVOICE_CSS}.inv-edit input{width:100%;box-sizing:border-box}.inv-edit td:first-child{min-width:150px}.inv-edit td{padding:3px}.inv-grid{display:grid;grid-template-columns:minmax(380px,560px) 1fr;gap:20px;align-items:start}.inv-preview{border:1px solid var(--border,#b8c6d0);box-shadow:0 2px 8px rgba(19,41,61,.12);overflow:auto}@media(max-width:1100px){.inv-grid{grid-template-columns:1fr}}</style>
+      <button class="btn secondary small" id="inv-back">← Retour au cours</button>
+      <h1>Facture — ${escapeHtml(courseTypeLabel(course.typeCode))} <span class="muted">${escapeHtml(course.id)}</span></h1>
+      <div class="actions-inline" style="margin:0 0 14px">
+        <button class="btn secondary" id="inv-save">Enregistrer le brouillon</button>
+        <button class="btn secondary" id="inv-mail">Courriel au centre</button>
+        <button class="btn" id="inv-print">🖨️ Imprimer / PDF</button>
+      </div>
+      <div class="inv-grid"><div>
+        <div class="card"><h3>1 · En-tête</h3>
+          <div class="row">
+            <div><label for="inv-center">Centre à facturer</label><select id="inv-center"><option value="">(aucun)</option>${centerOpts}</select></div>
+            <div><label for="inv-number">N° de facture</label><input id="inv-number" value="${escapeHtml(inv.number)}"></div>
+            <div><label for="inv-date">Date</label><input type="date" id="inv-date" value="${escapeHtml(inv.date)}"></div>
+          </div>
+          <label for="inv-ref">Réf. cours (modifiable)</label><input id="inv-ref" value="${escapeHtml(inv.ref)}">
+        </div>
+        <div class="card"><h3>2 · Groupes de tarification</h3>
+          <div class="row"><div><label for="inv-icount">Nb d'instructeurs sur le cours (part = 1 ÷ n)</label><input type="number" min="1" step="1" id="inv-icount" value="${inv.instructorCount}"></div>
+          <div style="align-self:flex-end"><button class="btn secondary small" id="inv-reload">↻ Tarifs du centre</button> <button class="btn secondary small" id="inv-addgroup">+ Groupe</button></div></div>
+          <table class="inv-edit" style="width:100%"><thead><tr><th>Description</th><th>Élèves</th><th>Part</th><th>Prix unit.</th><th>Total</th><th></th></tr></thead><tbody id="inv-groups"></tbody></table>
+        </div>
+        <div class="card"><h3>3 · Étudiants (issus du cours)</h3>
+          ${(course.students || []).length ? '' : '<p class="muted">Aucun étudiant dans ce cours.</p>'}
+          <div id="inv-students">${(course.students || []).map(s => `<div class="row" style="align-items:center;margin-bottom:4px"><div>${escapeHtml(s.firstName + ' ' + s.lastName)}</div><div><select class="inv-assign" aria-label="Groupe de ${escapeHtml(s.firstName + ' ' + s.lastName)}" data-folder="${escapeHtml(s.folder)}">${groupOpts}</select></div></div>`).join('')}</div>
+          <label class="checklist-item"><input type="checkbox" id="inv-names" ${inv.listNames ? 'checked' : ''}> Lister les noms sous chaque groupe</label>
+        </div>
+        <div class="card"><h3>4 · Options</h3>
+          <label class="checklist-item"><input type="checkbox" id="inv-tps" ${inv.tps ? 'checked' : ''}> Appliquer ${escapeHtml(T.tps.label)} (${fmtNum(T.tps.rate)} %)</label>
+          <label class="checklist-item"><input type="checkbox" id="inv-tvq" ${inv.tvq ? 'checked' : ''}> Appliquer ${escapeHtml(T.tvq.label)} (${fmtNum(T.tvq.rate)} %)</label>
+          <label class="checklist-item"><input type="checkbox" id="inv-logo" ${inv.showLogo ? 'checked' : ''}> Afficher le logo ScubaPilot</label>
+          <label class="checklist-item"><input type="checkbox" id="inv-stamp" ${inv.showStamp ? 'checked' : ''}> Apposer l'étampe ${state.stamp ? '' : '(aucune image : à ajouter dans Paramètres → Facturation)'}</label>
+          <label for="inv-note">Note libre</label><input id="inv-note" value="${escapeHtml(inv.note)}">
+          <h3 style="margin-top:12px">Lignes supplémentaires (frais, rabais…)</h3>
+          <div id="inv-extras"></div>
+          <button class="btn secondary small" id="inv-addextra">+ Ligne supplémentaire</button>
+        </div>
+      </div>
+      <div><div style="font-size:12px;color:var(--text-light,#4a6071);margin-bottom:6px">Aperçu en direct</div><div class="inv-preview" id="inv-preview"></div></div></div>
+    </div>`);
+    app.appendChild(page);
 
+    const gbody = page.querySelector('#inv-groups');
+    inv.groups.forEach((g, i) => {
+      const tr = el(`<table><tbody><tr data-i="${i}">
+        <td><input class="g-label" aria-label="Description groupe ${i + 1}" value="${escapeHtml(g.label)}"></td>
+        <td class="g-count">0</td>
+        <td style="width:70px"><input class="g-share" aria-label="Part groupe ${i + 1}" value="${fmtNum(g.share)}"></td>
+        <td style="width:90px"><input class="g-price" aria-label="Prix groupe ${i + 1}" value="${String(g.price).replace('.', ',')}"></td>
+        <td class="g-total" style="text-align:right"></td>
+        <td><button class="btn danger small g-del" aria-label="Supprimer le groupe ${i + 1}" ${inv.groups.length < 2 ? 'disabled' : ''}>✕</button></td></tr></tbody></table>`).querySelector('tr');
+      gbody.appendChild(tr);
+    });
+    const num = v => parseFloat(String(v).replace(/\s/g, '').replace(',', '.')) || 0;
+    gbody.querySelectorAll('tr').forEach(tr => {
+      const g = inv.groups[+tr.dataset.i];
+      tr.querySelector('.g-label').addEventListener('input', e => { g.label = e.target.value; inv.groupsEdited = true; page.querySelectorAll('.inv-assign option[value="' + g.id + '"]').forEach(o => o.textContent = g.label); refresh(); });
+      tr.querySelector('.g-share').addEventListener('input', e => { g.share = num(e.target.value); inv.groupsEdited = true; refresh(); });
+      tr.querySelector('.g-price').addEventListener('input', e => { g.price = num(e.target.value); inv.groupsEdited = true; refresh(); });
+      tr.querySelector('.g-del').addEventListener('click', () => {
+        inv.groups = inv.groups.filter(x => x !== g); inv.groupsEdited = true;
+        Object.keys(inv.assign).forEach(k => { if (inv.assign[k] === g.id) inv.assign[k] = inv.groups[0].id; });
+        build();
+      });
+    });
+    page.querySelectorAll('.inv-assign').forEach(sel => {
+      sel.value = inv.assign[sel.dataset.folder] || (inv.groups[0] && inv.groups[0].id);
+      sel.addEventListener('change', () => { inv.assign[sel.dataset.folder] = sel.value; refresh(); });
+    });
+    const ex = page.querySelector('#inv-extras');
+    inv.extras.forEach((x, i) => {
+      const row = el(`<div class="row" style="align-items:flex-end"><div><label for="ex-l-${i}">Description</label><input id="ex-l-${i}" value="${escapeHtml(x.label || '')}"></div><div><label for="ex-a-${i}">Montant (négatif = rabais)</label><input id="ex-a-${i}" value="${String(x.amount || '').replace('.', ',')}"></div><div><button class="btn danger small" aria-label="Supprimer la ligne ${i + 1}">✕</button></div></div>`);
+      row.querySelector(`#ex-l-${i}`).addEventListener('input', e => { x.label = e.target.value; refresh(); });
+      row.querySelector(`#ex-a-${i}`).addEventListener('input', e => { x.amount = num(e.target.value); refresh(); });
+      row.querySelector('button').addEventListener('click', () => { inv.extras.splice(i, 1); build(); });
+      ex.appendChild(row);
+    });
+    const bind = (id, key, isCheck) => page.querySelector(id).addEventListener(isCheck ? 'change' : 'input', e => { inv[key] = isCheck ? e.target.checked : e.target.value; refresh(); });
+    bind('#inv-number', 'number'); bind('#inv-date', 'date'); bind('#inv-ref', 'ref'); bind('#inv-note', 'note');
+    bind('#inv-names', 'listNames', true); bind('#inv-tps', 'tps', true); bind('#inv-tvq', 'tvq', true); bind('#inv-logo', 'showLogo', true); bind('#inv-stamp', 'showStamp', true);
+    page.querySelector('#inv-center').addEventListener('change', e => {
+      inv.centerId = e.target.value;
+      if (!inv.groupsEdited) { reloadPrices(); build(); } else refresh();
+    });
+    function reloadPrices() {
+      const old = inv.groups; const share = Math.round(10000 / Math.max(1, inv.instructorCount)) / 10000;
+      inv.groups = pickPriceGroups(inv.centerId, course.typeCode).map(g => Object.assign(g, { share }));
+      Object.keys(inv.assign).forEach(k => { if (!inv.groups.some(g => g.id === inv.assign[k])) inv.assign[k] = inv.groups[0].id; });
+      inv.groupsEdited = false;
+    }
+    page.querySelector('#inv-reload').addEventListener('click', () => { reloadPrices(); build(); });
+    page.querySelector('#inv-icount').addEventListener('change', e => {
+      inv.instructorCount = Math.max(1, parseInt(e.target.value, 10) || 1);
+      const share = Math.round(10000 / inv.instructorCount) / 10000;
+      inv.groups.forEach(g => { g.share = share; }); build();
+    });
+    page.querySelector('#inv-addgroup').addEventListener('click', () => {
+      let n = inv.groups.length + 1; while (inv.groups.some(g => g.id === 'g' + n)) n++;
+      inv.groups.push({ id: 'g' + n, label: 'Nouveau groupe', price: 0, share: inv.groups[0] ? inv.groups[0].share : 1 }); inv.groupsEdited = true; build();
+    });
+    page.querySelector('#inv-addextra').addEventListener('click', () => { inv.extras.push({ label: '', amount: 0 }); build(); });
+    page.querySelector('#inv-back').addEventListener('click', () => renderCourseDetail(course.id));
+
+    page.querySelector('#inv-save').addEventListener('click', ev => withBusy(ev.currentTarget, async () => {
+      try { await save(); toast('Facture enregistrée'); } catch (e) { toast('Erreur : ' + friendlyError(e), true); }
+    }, 'Enregistrement...'));
+    page.querySelector('#inv-print').addEventListener('click', ev => withBusy(ev.currentTarget, async () => {
+      try { await save(); printInvoice(course, inv); } catch (e) { toast('Erreur : ' + friendlyError(e), true); }
+    }, 'Ouverture...'));
+    page.querySelector('#inv-mail').addEventListener('click', ev => withBusy(ev.currentTarget, async () => {
+      try {
+        await save();
+        const c = centerById(inv.centerId), calc = computeInvoice(course, inv);
+        const subject = `Facture ${inv.number} — ${inv.ref}`;
+        const body = `Bonjour${c && c.contactName ? ' ' + c.contactName : ''},\n\nVeuillez trouver ci-joint la facture ${inv.number} (${inv.ref}), au montant de ${fmtMoney(calc.total)}.\n\nMerci,\n${state.settings.instructorName || ''}`;
+        window.location.href = `mailto:${encodeURIComponent((c && c.email) || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        toast('Joignez le PDF (Imprimer / PDF) au courriel');
+      } catch (e) { toast('Erreur : ' + friendlyError(e), true); }
+    }, 'Préparation...'));
+
+    function refresh() {
+      const calc = computeInvoice(course, inv);
+      gbody.querySelectorAll('tr').forEach((tr, i) => {
+        tr.querySelector('.g-count').textContent = calc.lines[i].count;
+        tr.querySelector('.g-total').textContent = fmtMoney(calc.lines[i].total);
+      });
+      page.querySelector('#inv-preview').innerHTML = invoiceInnerHtml(course, inv, calc, '');
+    }
+    refresh();
+  }
+  build();
+}
+
+function printInvoice(course, inv) {
+  const calc = computeInvoice(course, inv);
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Facture ${escapeHtml(inv.number)}</title>
+<style>${INVOICE_CSS}
+body{margin:0;background:#e9eef2}.print-bar{padding:12px;text-align:center}.print-bar button{padding:9px 18px;font-size:14px;cursor:pointer;border-radius:6px;border:none;background:#0e6ba8;color:#fff}
+.inv-sheet{max-width:816px;margin:0 auto}
+@page{size:letter;margin:0}
+@media print{body{background:#fff}.print-bar{display:none}.inv-sheet{min-height:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head><body><div class="print-bar"><button onclick="window.print()">🖨️ Imprimer / Enregistrer en PDF</button></div>
+${invoiceInnerHtml(course, inv, calc, location.origin + '/')}</body></html>`;
   const win = window.open('', '_blank');
   if (!win) { toast('Le navigateur a bloqué l\'ouverture de la facture. Autorisez les popups pour ce site puis réessayez.', true); return; }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
+  win.document.open(); win.document.write(html); win.document.close();
 }
 
 // Onglet actif de la fiche de cours, conservé au niveau du module pour survivre aux rafraîchissements
@@ -1485,7 +1650,7 @@ async function renderCourseDetail(id) {
         <div class="actions-inline" style="margin-top:0">
           <button class="btn secondary small" id="edit-course-btn">Modifier les notes / le centre / les instructeurs</button>
           <button class="btn secondary small" id="export-report-btn">🖨️ Exporter un rapport (imprimable)</button>
-          <button class="btn secondary small" id="export-invoice-btn">🧾 Générer une facture</button>
+          <button class="btn secondary small" id="export-invoice-btn">🧾 Facture</button>
           <button class="btn danger small" id="delete-course-btn">Supprimer le cours</button>
         </div>
         <label class="checklist-item course-completed-toggle-label" style="margin:0">
@@ -2582,76 +2747,106 @@ function buildCentersCard() {
   return card;
 }
 
-// ---------- Modèle de facturation (Paramètres) ----------
+// ---------- Facturation (Paramètres) ----------
 function buildBillingCard() {
-  const billing = state.billing || { currency: 'CAD', default: { basePrice: 0, minStudents: 1, extraStudentPrice: 0 }, byType: {} };
+  const b = normBilling(state.billing);
+  state.billing = b;
+  const lists = JSON.parse(JSON.stringify(b.priceLists));
   const card = el(`
     <div class="card">
       <h2>Facturation</h2>
-      <p class="muted">Pour chaque type de cours : un prix de base couvrant un nombre minimum d'étudiants, puis un montant par étudiant additionnel. Utilisé pour générer les factures.</p>
+      <p class="muted">Grilles de tarifs utilisées pour préremplir les factures (modifiables sur chaque facture), taxes, message de pied de page et étampe.</p>
       <div class="row">
-        <div><label for="bill-currency">Devise (ex: CAD, EUR, USD)</label><input id="bill-currency" value="${escapeHtml(billing.currency || 'CAD')}"></div>
+        <div><label for="bill-currency">Devise (ex: CAD, EUR, USD)</label><input id="bill-currency" value="${escapeHtml(b.currency)}"></div>
+        <div><label for="bill-footer">Message de pied de page</label><input id="bill-footer" value="${escapeHtml(b.footer)}"></div>
       </div>
-      <h3 style="margin-top:14px">Modèle par défaut (utilisé si un type de cours n'a pas de modèle spécifique)</h3>
       <div class="row">
-        <div><label for="bill-def-base">Prix de base</label><input type="number" step="0.01" id="bill-def-base" value="${billing.default ? billing.default.basePrice : 0}"></div>
-        <div><label for="bill-def-min">Nb étudiants inclus (minimum)</label><input type="number" step="1" id="bill-def-min" value="${billing.default ? billing.default.minStudents : 1}"></div>
-        <div><label for="bill-def-extra">Prix par étudiant additionnel</label><input type="number" step="0.01" id="bill-def-extra" value="${billing.default ? billing.default.extraStudentPrice : 0}"></div>
+        <div><label for="bill-tps-l">Taxe 1 — libellé</label><input id="bill-tps-l" value="${escapeHtml(b.taxes.tps.label)}"></div>
+        <div><label for="bill-tps-r">Taux (%)</label><input id="bill-tps-r" value="${fmtNum(b.taxes.tps.rate)}"></div>
+        <div><label for="bill-tvq-l">Taxe 2 — libellé</label><input id="bill-tvq-l" value="${escapeHtml(b.taxes.tvq.label)}"></div>
+        <div><label for="bill-tvq-r">Taux (%)</label><input id="bill-tvq-r" value="${fmtNum(b.taxes.tvq.rate)}"></div>
       </div>
-      <h3 style="margin-top:14px">Modèles par type de cours</h3>
-      <div id="bill-types"></div>
+      <h3 style="margin-top:14px">Étampe</h3>
+      <div class="row" style="align-items:center">
+        <div id="bill-stamp-prev"></div>
+        <div><label class="dropzone-browse btn secondary small">Choisir une image (PNG/JPG)<input type="file" id="bill-stamp-file" accept="image/*" style="display:none"></label>
+        <button class="btn danger small" id="bill-stamp-del">Retirer</button></div>
+      </div>
+      <h3 style="margin-top:14px">Grilles de tarifs</h3>
+      <p class="muted">La grille la plus précise s'applique (centre + type, puis centre, puis type, puis générale).</p>
+      <div id="bill-lists"></div>
+      <button class="btn secondary small" id="bill-addlist">+ Grille de tarifs</button>
       <div class="actions-inline" style="margin-top:14px"><button class="btn small" id="bill-save">Enregistrer la facturation</button></div>
       <p class="muted" id="bill-error"></p>
-    </div>
-  `);
-  const typesBox = card.querySelector('#bill-types');
-  state.courseTypes.forEach(t => {
-    const m = (billing.byType && billing.byType[t.code]) || {};
-    const safeCode = escapeHtml(t.code).replace(/[^a-zA-Z0-9_-]/g, '-');
-    const row = el(`
-      <div class="row" style="align-items:flex-end">
-        <div><label for="bt-base-${safeCode}">${escapeHtml(t.label)} (${escapeHtml(t.code)}) — prix de base</label><input type="number" step="0.01" id="bt-base-${safeCode}" class="bt-base" data-code="${escapeHtml(t.code)}" value="${m.basePrice !== undefined ? m.basePrice : ''}" placeholder="(modèle par défaut)"></div>
-        <div><label for="bt-min-${safeCode}">Nb inclus</label><input type="number" step="1" id="bt-min-${safeCode}" class="bt-min" data-code="${escapeHtml(t.code)}" value="${m.minStudents !== undefined ? m.minStudents : ''}" placeholder="(défaut)"></div>
-        <div><label for="bt-extra-${safeCode}">Prix / étudiant additionnel</label><input type="number" step="0.01" id="bt-extra-${safeCode}" class="bt-extra" data-code="${escapeHtml(t.code)}" value="${m.extraStudentPrice !== undefined ? m.extraStudentPrice : ''}" placeholder="(défaut)"></div>
-      </div>
-    `);
-    typesBox.appendChild(row);
+    </div>`);
+  const box = card.querySelector('#bill-lists');
+  const centerOpts = sel => `<option value="">Tous les centres</option>` + state.centers.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === sel ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+  const typeOpts = sel => `<option value="">Tous les types</option>` + state.courseTypes.map(t => `<option value="${escapeHtml(t.code)}" ${t.code === sel ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('');
+  function renderLists() {
+    box.innerHTML = '';
+    lists.forEach((l, li) => {
+      l.groups = l.groups || [];
+      const w = el(`<div style="border:1px solid #d5dee5;border-radius:8px;padding:10px;margin-bottom:10px">
+        <div class="row" style="align-items:flex-end">
+          <div><label for="pl-c-${li}">Centre</label><select id="pl-c-${li}">${centerOpts(l.centerId)}</select></div>
+          <div><label for="pl-t-${li}">Type de cours</label><select id="pl-t-${li}">${typeOpts(l.typeCode)}</select></div>
+          <div><button class="btn danger small" data-act="del">Supprimer la grille</button></div>
+        </div><div class="pl-groups"></div>
+        <button class="btn secondary small" data-act="add">+ Groupe de prix</button></div>`);
+      w.querySelector(`#pl-c-${li}`).addEventListener('change', e => { l.centerId = e.target.value; });
+      w.querySelector(`#pl-t-${li}`).addEventListener('change', e => { l.typeCode = e.target.value; });
+      const gb = w.querySelector('.pl-groups');
+      l.groups.forEach((g, gi) => {
+        const r = el(`<div class="row" style="align-items:flex-end"><div><label for="pg-l-${li}-${gi}">Description</label><input id="pg-l-${li}-${gi}" value="${escapeHtml(g.label || '')}"></div><div><label for="pg-p-${li}-${gi}">Prix unitaire</label><input id="pg-p-${li}-${gi}" value="${String(g.price || 0).replace('.', ',')}"></div><div><button class="btn danger small" aria-label="Retirer ce groupe">✕</button></div></div>`);
+        r.querySelector(`#pg-l-${li}-${gi}`).addEventListener('input', e => { g.label = e.target.value; });
+        r.querySelector(`#pg-p-${li}-${gi}`).addEventListener('input', e => { g.price = parseFloat(String(e.target.value).replace(',', '.')) || 0; });
+        r.querySelector('button').addEventListener('click', () => { l.groups.splice(gi, 1); renderLists(); });
+        gb.appendChild(r);
+      });
+      w.querySelector('[data-act=add]').addEventListener('click', () => { l.groups.push({ label: '', price: 0 }); renderLists(); });
+      w.querySelector('[data-act=del]').addEventListener('click', () => { lists.splice(li, 1); renderLists(); });
+      box.appendChild(w);
+    });
+    if (!lists.length) box.appendChild(el('<p class="muted">Aucune grille : la facture démarre avec un groupe « Cours complet » à 0 $.</p>'));
+  }
+  renderLists();
+  card.querySelector('#bill-addlist').addEventListener('click', () => { lists.push({ centerId: '', typeCode: '', groups: [{ label: 'Cours complet', price: 0 }] }); renderLists(); });
+
+  async function showStamp() {
+    if (state.stamp === undefined) { try { state.stamp = (await api('GET', '/api/stamp')).dataUrl || ''; } catch (e) { state.stamp = ''; } }
+    card.querySelector('#bill-stamp-prev').innerHTML = state.stamp ? `<img src="${state.stamp}" alt="Étampe" style="max-width:180px;max-height:90px">` : '<span class="muted">(aucune étampe)</span>';
+    card.querySelector('#bill-stamp-del').style.display = state.stamp ? '' : 'none';
+  }
+  showStamp();
+  card.querySelector('#bill-stamp-file').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = async () => {
+      try { await api('PUT', '/api/stamp', { dataUrl: r.result }); state.stamp = r.result; showStamp(); toast('Étampe enregistrée'); }
+      catch (err) { toast('Erreur : ' + friendlyError(err), true); }
+    };
+    r.readAsDataURL(f);
   });
-  if (!state.courseTypes.length) typesBox.appendChild(el('<p class="muted">Aucun type de cours défini.</p>'));
+  card.querySelector('#bill-stamp-del').addEventListener('click', async () => {
+    await api('PUT', '/api/stamp', { dataUrl: '' }); state.stamp = ''; showStamp();
+  });
 
   card.querySelector('#bill-save').addEventListener('click', async (ev) => {
-    const byType = {};
-    typesBox.querySelectorAll('.bt-base').forEach(input => {
-      const code = input.dataset.code;
-      const baseEl = input;
-      const minEl = typesBox.querySelector(`.bt-min[data-code="${code}"]`);
-      const extraEl = typesBox.querySelector(`.bt-extra[data-code="${code}"]`);
-      const entry = {};
-      if (baseEl.value !== '') entry.basePrice = parseFloat(baseEl.value) || 0;
-      if (minEl.value !== '') entry.minStudents = parseInt(minEl.value, 10) || 0;
-      if (extraEl.value !== '') entry.extraStudentPrice = parseFloat(extraEl.value) || 0;
-      if (Object.keys(entry).length) byType[code] = entry;
-    });
-    const newBilling = {
+    const rate = id => parseFloat(String(card.querySelector(id).value).replace(',', '.')) || 0;
+    const nb = Object.assign({}, state.billing, {
       currency: card.querySelector('#bill-currency').value.trim() || 'CAD',
-      default: {
-        basePrice: parseFloat(card.querySelector('#bill-def-base').value) || 0,
-        minStudents: parseInt(card.querySelector('#bill-def-min').value, 10) || 0,
-        extraStudentPrice: parseFloat(card.querySelector('#bill-def-extra').value) || 0
+      footer: card.querySelector('#bill-footer').value,
+      taxes: {
+        tps: { label: card.querySelector('#bill-tps-l').value || 'T.P.S.', rate: rate('#bill-tps-r') },
+        tvq: { label: card.querySelector('#bill-tvq-l').value || 'T.V.Q.', rate: rate('#bill-tvq-r') }
       },
-      byType
-    };
+      priceLists: lists.map(l => ({ centerId: l.centerId || '', typeCode: l.typeCode || '', groups: (l.groups || []).filter(g => g.label) }))
+    });
     await withBusy(ev.currentTarget, async () => {
-      try {
-        await api('PUT', '/api/billing', newBilling);
-        state.billing = newBilling;
-        toast('Modèle de facturation enregistré');
-      } catch (e) {
-        card.querySelector('#bill-error').textContent = friendlyError(e);
-      }
+      try { await api('PUT', '/api/billing', nb); state.billing = nb; toast('Facturation enregistrée'); }
+      catch (e) { card.querySelector('#bill-error').textContent = friendlyError(e); }
     });
   });
-
   return card;
 }
 
@@ -3093,6 +3288,8 @@ function renderSettings() {
       <input id="s-instructor" value="${escapeHtml(s.instructorName || '')}">
       <label for="s-instructor-padi">Statut / numéro PADI (ex: "Instructeur PADI #123456")</label>
       <input id="s-instructor-padi" value="${escapeHtml(s.instructorPadi || '')}" placeholder="Instructeur PADI #123456">
+      <label for="s-instructor-address">Votre adresse (en-tête des factures)</label>
+      <input id="s-instructor-address" value="${escapeHtml(s.instructorAddress || '')}">
       <div class="row">
         <div><label for="s-instructor-email">Votre email (destinataire "À" de l'email groupé)</label><input id="s-instructor-email" type="email" value="${escapeHtml(s.instructorEmail || '')}"></div>
         <div><label for="s-instructor-phone">Votre téléphone</label><input id="s-instructor-phone" type="tel" value="${escapeHtml(s.instructorPhone || '')}"></div>
@@ -3176,6 +3373,7 @@ function renderSettings() {
   document.getElementById('s-save-instructor').addEventListener('click', async () => {
     s.instructorName = document.getElementById('s-instructor').value;
     s.instructorPadi = document.getElementById('s-instructor-padi').value;
+    s.instructorAddress = document.getElementById('s-instructor-address').value;
     s.instructorEmail = document.getElementById('s-instructor-email').value;
     s.instructorPhone = document.getElementById('s-instructor-phone').value;
     s.defaultCc = document.getElementById('s-default-cc').value;

@@ -1,6 +1,6 @@
 # ScubaPilot
 
-Version 1.1 — Octobre 2026
+Version 1.2 — Octobre 2026
 
 Application **locale** (aucune donnée envoyée sur internet) pour gérer votre activité d'instructeur de plongée indépendant : cours, étudiants, checklist de documents à collecter, et génération d'emails.
 
@@ -148,7 +148,14 @@ Vos coordonnées (Paramètres → "Vos coordonnées") sont aussi disponibles com
 
 Chaque **nouveau** cours doit obligatoirement être associé à un **centre mandataire**, géré dans Paramètres → "Centres partenaires" (nom, contact, adresse, email, téléphone, n° de taxe/référence, notes). Ce centre apparaît sur le tableau de bord, le rapport de cours, et sert d'en-tête "Facturé à" sur les factures. Un cours créé avec une version antérieure de l'application, sans centre, reste consultable et affiche "non défini" — modifiez-le une fois via "Modifier les notes / le centre" pour lui en assigner un.
 
-Sur la fiche d'un cours, le bouton **"🧾 Générer une facture"** calcule automatiquement le montant à partir du **modèle de facturation** (Paramètres → "Facturation") : un prix de base couvrant un nombre minimum d'étudiants pour ce type de cours, plus un montant par étudiant additionnel au-delà de ce minimum. Vous pouvez définir un modèle par défaut et le surclasser pour des types de cours spécifiques. Avant de générer, vous pouvez ajuster le numéro/date de facture, ajouter une ligne de frais additionnels (description + montant) et des notes — ces informations sont conservées avec le cours. La facture s'ouvre ensuite dans un nouvel onglet imprimable, comme le rapport de cours.
+Sur la fiche d'un cours, le bouton **"🧾 Facture"** ouvre l'**éditeur de facture** (aperçu en direct à droite) :
+
+- **En-tête** : centre à facturer, n° de facture (auto, ex. 2026-001), date, réf. du cours.
+- **Groupes de tarification** (ex. « Cours complet », « Théorie + MP seulement ») : description, **part** (1 ÷ nombre d'instructeurs, ex. 0,5, modifiable) et prix unitaire. Chaque étudiant du cours est affecté à un groupe; les noms peuvent être listés sous le groupe.
+- **Options** : T.P.S. / T.V.Q. cochables, logo, **étampe**, note libre, lignes supplémentaires (frais, rabais).
+- **Sortie** : enregistrer le brouillon (conservé avec le cours), **Imprimer / PDF** (format Letter) et **Courriel au centre** (courriel prérempli, à joindre au PDF).
+
+Dans Paramètres → **Facturation** : devise, taxes (libellés et taux), message de pied de page, **image d'étampe** et **grilles de tarifs** par centre et/ou par type de cours (la plus précise s'applique; tout reste modifiable sur la facture). Votre adresse (en-tête de facture) se saisit dans vos coordonnées.
 
 ## Instructeur certificateur (à partir de la liste de coéquipiers)
 

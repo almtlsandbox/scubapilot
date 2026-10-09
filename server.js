@@ -168,6 +168,15 @@ app.put('/api/centers', (req, res) => { writeJSON(CENTERS_FILE, req.body); res.j
 app.get('/api/billing', (req, res) => res.json(readJSON(BILLING_FILE, { currency: 'CAD', default: { basePrice: 0, minStudents: 1, extraStudentPrice: 0 }, byType: {} })));
 app.put('/api/billing', (req, res) => { writeJSON(BILLING_FILE, req.body); res.json({ ok: true }); });
 
+// ---------- Étampe (image pour les factures, stockée en data URL) ----------
+const STAMP_FILE = path.join(DATA_DIR, 'stamp.json');
+app.get('/api/stamp', (req, res) => res.json(readJSON(STAMP_FILE, { dataUrl: '' })));
+app.put('/api/stamp', (req, res) => {
+  const d = req.body && typeof req.body.dataUrl === 'string' ? req.body.dataUrl : '';
+  if (d && !/^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,/.test(d)) return res.status(400).json({ error: 'INVALID_IMAGE' });
+  writeJSON(STAMP_FILE, { dataUrl: d }); res.json({ ok: true });
+});
+
 // ---------- Stats d'un cours ----------
 function computeCourseStats(root, courseId, course) {
   const cFolder = path.join(root, courseId);
