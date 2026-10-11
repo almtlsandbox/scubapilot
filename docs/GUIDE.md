@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.2 — Octobre 2026**
+**Version 1.3 — Octobre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -53,7 +53,7 @@ L'installation se fait une seule fois. L'application est écrite pour **Windows*
 
 ### 2.2 Récupérer l'application
 
-**Option A — téléchargement du zip** (le plus simple) : décompressez `ScubaPilot-v1.2.zip` où vous voulez, par exemple `C:\Apps\ScubaPilot`. Choisissez un emplacement qui ne change pas (évitez le dossier Téléchargements).
+**Option A — téléchargement du zip** (le plus simple) : décompressez `ScubaPilot-v1.3.zip` où vous voulez, par exemple `C:\Apps\ScubaPilot`. Choisissez un emplacement qui ne change pas (évitez le dossier Téléchargements).
 
 **Option B — depuis GitHub** (si vous avez Git) :
 
@@ -86,7 +86,7 @@ Double-cliquez sur **`Lancer (avec fenetre).bat`**. Une fenêtre noire s'ouvre (
 4. Pour l'arrêter (par exemple avant une mise à jour) : double-cliquez sur **`Arreter.bat`**.
 5. En cas de souci, consultez le fichier `app.log` créé dans le dossier de l'application.
 
-Le numéro de version est affiché en bas de la barre latérale (« ScubaPilot v1.2 »).
+Le numéro de version est affiché en bas de la barre latérale (« ScubaPilot v1.3 »).
 
 ## 4. Configuration initiale (premiers pas)
 
@@ -143,7 +143,9 @@ Menu **+ Nouveau cours** :
 
 1. Choisissez le **type de cours** (OWD, Rescue, etc.).
 2. Choisissez le **centre mandataire** (obligatoire).
-3. Entrez la **date** de la première séance (saisie continue `JJ/MM/AAAA` : tapez les 8 chiffres, les `/` s'insèrent seuls), l'heure, le site.
+3. Entrez la **date** de la première séance, l'heure et le site.
+   - **Date** : tapez les 8 chiffres à la suite (`17102026` devient `17/10/2026`, les `/` s'insèrent seuls) **ou** cliquez sur le bouton 📅 à droite du champ pour choisir dans un petit calendrier.
+   - **Heure** : format 24 h. Tapez par exemple `930` (devient `09:30`) ou `9` (devient `09:00`), ou cliquez dans le champ pour choisir parmi les suggestions toutes les 15 minutes (de 06:00 à 22:00). Une heure invalide est effacée.
 4. Sélectionnez les **instructeurs** rattachés au cours (parmi vos coéquipiers).
 5. Choisissez au besoin un **modèle d'email** par défaut et ajoutez des notes.
 
@@ -431,6 +433,7 @@ Avec Git : `git pull`, puis `npm install` si nécessaire. Vos fichiers `data/` m
 
 | Version | Principales nouveautés |
 |---|---|
+| 1.3 | Petit calendrier 📅 à côté de chaque date, saisie d'heure 24 h au clavier avec suggestions toutes les 15 minutes |
 | 1.2 | Éditeur de facture (groupes de tarifs, parts, taxes, logo, étampe, aperçu, PDF, courriel), grilles de tarifs par centre et type, numérotation automatique, adresse de l'instructeur |
 | 1.1 | Transfert de dossier pour les étudiants « cours seulement », instructeur certificateur choisi parmi les coéquipiers, correction du calcul des %, fichiers sans cache, version affichée |
 | 1.0 | Cours, étudiants, checklists, emails, rapports, sauvegarde, logo |

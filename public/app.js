@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.2';
+const APP_VERSION = '1.3';
 const APP_RELEASE = 'Octobre 2026';
 
 const state = { settings: null, courseTypes: [], sites: [], studentFields: [], emailTemplates: [], buddies: [], centers: [], billing: null };
@@ -562,8 +562,8 @@ function renderNewCourse() {
       <h3 style="margin-top:16px">Première séance</h3>
       <div class="row">
         <div><label for="f-date">Date</label>${plainDateInputHtml('f-date', '', 'f-date')}</div>
-        <div><label for="f-time-start">Heure de début</label><input type="time" id="f-time-start"></div>
-        <div><label for="f-time-end">Heure de fin</label><input type="time" id="f-time-end"></div>
+        <div><label for="f-time-start">Heure de début</label>${timeInputHtml("", "", "f-time-start")}</div>
+        <div><label for="f-time-end">Heure de fin</label>${timeInputHtml("", "", "f-time-end")}</div>
         <div><label for="f-site">Lieu</label><select id="f-site">${siteOptions}</select></div>
       </div>
       <p class="muted">Vous pourrez ajouter d'autres séances (dates/heures/lieux) et changer le modèle d'email après la création du cours.</p>
@@ -782,8 +782,8 @@ function buildSessionsCard(course) {
       const tr = elRow(`
         <tr>
           <td>${plainDateInputHtml('sess-date', sess.date || '')}</td>
-          <td><input type="time" class="sess-time-start" value="${escapeHtml(sess.timeStart || '')}"></td>
-          <td><input type="time" class="sess-time-end" value="${escapeHtml(sess.timeEnd || '')}"></td>
+          <td>${timeInputHtml("sess-time-start", sess.timeStart)}</td>
+          <td>${timeInputHtml("sess-time-end", sess.timeEnd)}</td>
           <td class="sess-duration muted">${sessionDuration(sess.timeStart, sess.timeEnd)}</td>
           <td><select class="sess-site">${siteOptionsHtml(sess.siteId)}</select></td>
           <td><input class="sess-notes" value="${escapeHtml(sess.notes || '')}"></td>
@@ -845,8 +845,8 @@ function buildSessionsCard(course) {
     <div style="margin-top:14px; display:none">
       <div class="row">
         <div><label for="ns-date">Date</label>${plainDateInputHtml('ns-date', '', 'ns-date')}</div>
-        <div><label for="ns-time-start">Heure de début</label><input type="time" id="ns-time-start"></div>
-        <div><label for="ns-time-end">Heure de fin</label><input type="time" id="ns-time-end"></div>
+        <div><label for="ns-time-start">Heure de début</label>${timeInputHtml("", "", "ns-time-start")}</div>
+        <div><label for="ns-time-end">Heure de fin</label>${timeInputHtml("", "", "ns-time-end")}</div>
         <div><label for="ns-site">Lieu</label><select id="ns-site">${siteOptions}</select></div>
       </div>
       <label for="ns-notes">Notes (optionnel)</label><input id="ns-notes">
@@ -2207,6 +2207,7 @@ function attachDateAutoFormat(container) {
     });
     updateHint();
   });
+  enhanceDateInputs(container);
 }
 
 // Version générique du même champ date JJ/MM/AAAA à saisie continue (sans indice d'âge), pour
@@ -2227,7 +2228,77 @@ function attachPlainDateAutoFormat(container) {
       input.value = out;
     });
   });
+  enhanceDateInputs(container);
+  attachTimeInputs(container);
 }
+
+// ---------- Sélecteur de date (petit calendrier) et saisie d'heure ----------
+// Le champ date reste un champ texte JJ/MM/AAAA (saisie continue, fiable partout) ; un bouton 📅 à
+// côté ouvre le calendrier natif du navigateur (via un <input type="date"> caché) et reporte la date choisie.
+function enhanceDateInputs(container) {
+  container.querySelectorAll('input.date-input, input.date-input-plain').forEach(input => {
+    if (input.dataset.calReady) return;
+    input.dataset.calReady = '1';
+    const wrap = document.createElement('span');
+    wrap.className = 'date-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    const hidden = document.createElement('input');
+    hidden.type = 'date'; hidden.className = 'date-native'; hidden.tabIndex = -1; hidden.setAttribute('aria-hidden', 'true');
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'date-cal-btn'; btn.title = 'Choisir dans le calendrier';
+    btn.setAttribute('aria-label', 'Ouvrir le calendrier'); btn.textContent = '📅';
+    wrap.appendChild(btn); wrap.appendChild(hidden);
+    btn.addEventListener('click', () => {
+      hidden.value = displayToIsoDate(input.value) || '';
+      if (typeof hidden.showPicker === 'function') { try { hidden.showPicker(); return; } catch (e) {} }
+      hidden.focus(); hidden.click();
+    });
+    hidden.addEventListener('change', () => {
+      if (!hidden.value) return;
+      input.value = isoToDisplayDate(hidden.value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
+}
+// Heure : champ texte 24 h "HH:MM" à saisie continue (tapez 0930 → 09:30, ou 9 → 09:00) avec une liste
+// de suggestions toutes les 15 minutes (clic dans le champ ou flèche bas), au lieu du sélecteur natif.
+function normalizeTime(v) {
+  const d = String(v || '').replace(/\D/g, '').slice(0, 4);
+  if (!d) return '';
+  let h, m;
+  if (d.length <= 2) { h = d.length === 1 ? '0' + d : d; m = '00'; }
+  else if (d.length === 3) { h = '0' + d[0]; m = d.slice(1); }
+  else { h = d.slice(0, 2); m = d.slice(2); }
+  return (+h < 24 && +m < 60) ? `${h}:${m}` : '';
+}
+function ensureTimeSlots() {
+  if (document.getElementById('time-slots')) return;
+  const dl = document.createElement('datalist'); dl.id = 'time-slots';
+  for (let h = 6; h <= 22; h++) for (const m of ['00', '15', '30', '45']) {
+    if (h === 22 && m !== '00') continue;
+    const o = document.createElement('option'); o.value = `${String(h).padStart(2, '0')}:${m}`; dl.appendChild(o);
+  }
+  document.body.appendChild(dl);
+}
+function timeInputHtml(cls, value, id) {
+  return `<input type="text" class="time-input ${cls || ''}" ${id ? `id="${id}"` : ''} value="${escapeHtml(value || '')}" placeholder="HH:MM" inputmode="numeric" maxlength="5" list="time-slots" autocomplete="off">`;
+}
+function attachTimeInputs(container) {
+  ensureTimeSlots();
+  container.querySelectorAll('input.time-input').forEach(input => {
+    if (input.dataset.timeReady) return;
+    input.dataset.timeReady = '1';
+    input.addEventListener('input', () => {
+      const d = input.value.replace(/\D/g, '').slice(0, 4);
+      input.value = d.length > 2 ? d.slice(0, 2) + ':' + d.slice(2) : d;
+    });
+    // Enregistré avant les écouteurs "change" des formulaires : la valeur lue ensuite est déjà normalisée.
+    input.addEventListener('change', () => { input.value = normalizeTime(input.value); });
+  });
+}
+
 // Durée entre deux heures "HH:MM" (heure de début / heure de fin d'une séance), affichée en
 // "Xh" ou "Xh MMmin" — utile pour la facturation. Retourne '' si les heures sont incomplètes
 // ou incohérentes (fin avant début).

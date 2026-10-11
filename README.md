@@ -1,13 +1,13 @@
 # ScubaPilot
 
-Version 1.2 — Octobre 2026
+Version 1.3 — Octobre 2026
 
 Application **locale** (aucune donnée envoyée sur internet) pour un instructeur de plongée indépendant : cours, étudiants, checklists de documents, certification, communications et **facturation**.
 
 ## 📖 Documentation
 
 **➡️ [Guide complet : de l'installation à l'utilisation](docs/GUIDE.md)**  
-**📄 [Version PDF illustrée (captures d’écran)](docs/ScubaPilot-Guide-v1.2.pdf)**
+**📄 [Version PDF illustrée (captures d’écran)](docs/ScubaPilot-Guide-v1.3.pdf)**
 
 Aide-mémoire : [installation](docs/GUIDE.md#2-installation) · [premiers pas](docs/GUIDE.md#4-configuration-initiale-premiers-pas) · [facturation](docs/GUIDE.md#9-facturation) · [sauvegarde](docs/GUIDE.md#13-sauvegarde) · [mise à jour](docs/GUIDE.md#14-mise-à-jour-de-lapplication) · [dépannage](docs/GUIDE.md#15-dépannage)
 

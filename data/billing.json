@@ -1,34 +1,5 @@
 {
   "currency": "CAD",
-  "priceLists": [
-    {
-      "centerId": "c1",
-      "typeCode": "",
-      "groups": [
-        {
-          "label": "Cours complet",
-          "price": 120
-        },
-        {
-          "label": "Théorie + MP seulement",
-          "price": 70
-        }
-      ]
-    }
-  ],
-  "taxes": {
-    "tps": {
-      "label": "T.P.S.",
-      "rate": 5
-    },
-    "tvq": {
-      "label": "T.V.Q.",
-      "rate": 9.975
-    }
-  },
-  "footer": "MERCI DE VOTRE CONFIANCE !",
-  "counter": {
-    "year": 2026,
-    "last": 1
-  }
+  "default": { "basePrice": 0, "minStudents": 1, "extraStudentPrice": 0 },
+  "byType": {}
 }
