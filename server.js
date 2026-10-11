@@ -280,6 +280,7 @@ app.post('/api/courses', (req, res) => {
     const root = getRoot();
     const { typeCode, notes, session, emailTemplateId, centerId, instructorIds } = req.body;
     if (!typeCode || !session || !session.date) return res.status(400).json({ error: 'MISSING_FIELDS' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(session.date) || isNaN(new Date(session.date + 'T00:00:00'))) return res.status(400).json({ error: 'INVALID_DATE' });
     if (!centerId) return res.status(400).json({ error: 'CENTER_REQUIRED' });
     const id = `${typeCode}_${fmtDateId(session.date)}`;
     const cFolder = path.join(root, id);

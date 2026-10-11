@@ -20,6 +20,7 @@ async function api(method, url, body) {
 function friendlyError(e) {
   const raw = (e && e.message) || '';
   if (!raw || raw === 'ERROR') return "Une erreur est survenue. Réessayez, et si le problème persiste, vérifiez votre connexion ou le répertoire racine dans Paramètres.";
+  if (raw === 'INVALID_DATE') return 'Date invalide : utilisez le format JJ/MM/AAAA.';
   if (/^[A-Z0-9_]+$/.test(raw)) return `Une erreur est survenue (code : ${raw}). Réessayez.`;
   return raw;
 }
