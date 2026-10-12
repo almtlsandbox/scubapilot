@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.3 — Octobre 2026**
+**Version 1.4 — Octobre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -53,7 +53,7 @@ L'installation se fait une seule fois. L'application est écrite pour **Windows*
 
 ### 2.2 Récupérer l'application
 
-**Option A — téléchargement du zip** (le plus simple) : décompressez `ScubaPilot-v1.3.zip` où vous voulez, par exemple `C:\Apps\ScubaPilot`. Choisissez un emplacement qui ne change pas (évitez le dossier Téléchargements).
+**Option A — téléchargement du zip** (le plus simple) : décompressez `ScubaPilot-v1.4.zip` où vous voulez, par exemple `C:\Apps\ScubaPilot`. Choisissez un emplacement qui ne change pas (évitez le dossier Téléchargements).
 
 **Option B — depuis GitHub** (si vous avez Git) :
 
@@ -86,7 +86,7 @@ Double-cliquez sur **`Lancer (avec fenetre).bat`**. Une fenêtre noire s'ouvre (
 4. Pour l'arrêter (par exemple avant une mise à jour) : double-cliquez sur **`Arreter.bat`**.
 5. En cas de souci, consultez le fichier `app.log` créé dans le dossier de l'application.
 
-Le numéro de version est affiché en bas de la barre latérale (« ScubaPilot v1.3 »).
+Le numéro de version est affiché en bas de la barre latérale (« ScubaPilot v1.4 »).
 
 ## 4. Configuration initiale (premiers pas)
 
@@ -200,6 +200,7 @@ Dépliez l'étudiant pour voir :
 - un badge **⚠ Infos incomplètes** s'il manque un téléphone, un courriel ou une date de naissance (survolez le badge pour voir quoi) ;
 - la **checklist pré-cours et post-cours** : cochez les cases au fur et à mesure (vous pouvez enchaîner les clics sans rechargement). Une date est enregistrée à chaque réception ;
 - la zone de **dépôt de fichiers**, le bouton **📂 Ouvrir dans l'Explorateur** et le bouton **✉️ Écrire un email** ;
+- une zone **Notes** : texte libre propre à cet étudiant pour ce cours (observations, appréhensions, allergies, rappels à faire…). Elle s'enregistre automatiquement après une courte pause de frappe ou quand vous quittez le champ (indication « ✓ Enregistré »). Un badge **📝 Note** apparaît dans l'en-tête de l'étudiant dès qu'une note existe ; la note figure aussi sur le **rapport de cours** et dans l'**historique de la fiche globale** ;
 - la section **Certification** ou **Transfert de dossier** (voir [section 8](#8-certification-et-transfert-de-dossier)) ;
 - le lien **fiche globale**.
 
@@ -433,6 +434,7 @@ Avec Git : `git pull`, puis `npm install` si nécessaire. Vos fichiers `data/` m
 
 | Version | Principales nouveautés |
 |---|---|
+| 1.4 | Note libre par étudiant (enregistrement automatique, badge, rapport, fiche globale) |
 | 1.3 | Petit calendrier 📅 à côté de chaque date, saisie d'heure 24 h au clavier avec suggestions toutes les 15 minutes |
 | 1.2 | Éditeur de facture (groupes de tarifs, parts, taxes, logo, étampe, aperçu, PDF, courriel), grilles de tarifs par centre et type, numérotation automatique, adresse de l'instructeur |
 | 1.1 | Transfert de dossier pour les étudiants « cours seulement », instructeur certificateur choisi parmi les coéquipiers, correction du calcul des %, fichiers sans cache, version affichée |

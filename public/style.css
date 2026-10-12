@@ -149,3 +149,6 @@ tr.course-row-past:hover { background: #f4f4f4; }
 input.time-input { width: 82px; min-width: 0; padding-left: 6px; padding-right: 6px; }
 table .date-wrap { width: auto; min-width: 150px; }
 .sess-site { min-width: 140px; }
+.student-note { margin-top: 14px; }
+.student-note textarea { width: 100%; min-height: 70px; resize: vertical; }
+.badge.note-flag { background: #fdf6e9; color: #6b4a0f; border: 1px solid #e2a44a; }

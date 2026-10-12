@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.4';
 const APP_RELEASE = 'Octobre 2026';
 
 const state = { settings: null, courseTypes: [], sites: [], studentFields: [], emailTemplates: [], buddies: [], centers: [], billing: null };
@@ -1201,6 +1201,7 @@ function buildReportHtml(course, type) {
       <div class="student-card">
         <h3>${escapeHtml(s.firstName)} ${escapeHtml(s.lastName)} <span class="pct">Pré ${prePct}% · Post ${postPct}%${studentHasCertification(s) ? ` · ${s.certificationConfirmed ? '✅ Certifié' : '❌ Non certifié'}${s.certifyingInstructorId ? ' (' + escapeHtml(buddyLabelById(s.certifyingInstructorId)) + ')' : ''}` : ` · ${s.fileTransferred ? '📁 Dossier transféré' : '📁 Dossier non transféré'}`}</span></h3>
         <div class="student-info">${infoLines || '<span class="muted">Aucune coordonnée renseignée</span>'}</div>
+        ${s.note && s.note.trim() ? `<div class="student-note-print"><strong>Notes :</strong> ${escapeHtml(s.note).replace(/\n/g, '<br>')}</div>` : ''}
         <div class="two-col-print">
           <div><h4>Documents pré-cours</h4><ul>${preItems || '<li class="muted">Aucun</li>'}</ul></div>
           <div><h4>Documents post-cours</h4><ul>${postItems || '<li class="muted">Aucun</li>'}</ul></div>
@@ -1232,6 +1233,7 @@ function buildReportHtml(course, type) {
   .student-card { border: 1px solid #ddd; border-radius: 8px; padding: 14px 18px; margin-bottom: 14px; page-break-inside: avoid; }
   .pct { font-size: 12px; font-weight: normal; color: #333; white-space: nowrap; }
   .student-info { font-size: 12px; margin-bottom: 8px; columns: 2; column-gap: 24px; }
+  .student-note-print { font-size: 12px; background: #fdf6e9; border-left: 3px solid #e2a44a; padding: 6px 10px; margin-bottom: 8px; }
   .two-col-print { display: flex; gap: 30px; }
   .two-col-print > div { flex: 1; }
   ul { margin: 0; padding-left: 18px; font-size: 13px; }
@@ -1815,7 +1817,7 @@ async function renderStudentProfile(key) {
     <div class="card">
       <h2>Historique des cours (${records.length})</h2>
       <table>
-        <thead><tr><th>Date</th><th>Type</th><th>Centre</th><th>Pré-cours</th><th>Post-cours</th><th>Certification</th><th>Instructeur certificateur</th></tr></thead>
+        <thead><tr><th>Date</th><th>Type</th><th>Centre</th><th>Pré-cours</th><th>Post-cours</th><th>Certification</th><th>Instructeur certificateur</th><th>Notes</th></tr></thead>
         <tbody id="profile-history"></tbody>
       </table>
     </div>
@@ -1839,6 +1841,7 @@ async function renderStudentProfile(key) {
         <td><span class="badge ${badgeClass(postPct)}">${postPct}%</span></td>
         <td>${studentHasCertification(record) ? (record.certificationConfirmed ? '✅ Certifié' : '❌ Non certifié') : (record.fileTransferred ? '📁 Dossier transféré' : '📁 Dossier non transféré')}</td>
         <td>${record.certifyingInstructorId ? escapeHtml(buddyLabelById(record.certifyingInstructorId)) : '<span class="muted">-</span>'}</td>
+        <td style="white-space:pre-wrap;max-width:260px">${record.note && record.note.trim() ? escapeHtml(record.note) : '<span class="muted">-</span>'}</td>
       </tr>
     `);
     if (course) tr.addEventListener('click', () => location.hash = '#/course/' + encodeURIComponent(course.id));
@@ -1967,6 +1970,7 @@ function renderStudentBlock(course, type, s) {
           <a href="#/student/${encodeURIComponent(studentKey(s))}" class="muted" style="font-size:12px;text-decoration:underline" data-act="profile-link" title="Voir tous les cours de cet étudiant">fiche globale</a>
           <span class="tag-status">${escapeHtml(statusLabel)}</span>
           ${missingInfo.length ? `<span class="badge bad" title="Manque : ${escapeHtml(missingInfo.join(', '))}">⚠ Infos incomplètes</span>` : ''}
+          <span class="badge note-flag" data-note-flag="${escapeHtml(s.folder)}" style="${s.note && s.note.trim() ? '' : 'display:none'}" title="${escapeHtml((s.note || '').slice(0, 200))}">📝 Note</span>
         </div>
         <div>
           <span class="badge ${badgeClass(prePct)}" data-pre-badge="${escapeHtml(s.folder)}">Pré ${prePct}%</span>
@@ -2033,6 +2037,11 @@ function buildStudentDetails(course, type, s) {
       </div>
     </div>
     <div class="edit-info-form" style="display:none"></div>
+    <div class="student-note">
+      <h3>Notes <span class="muted student-note-status" aria-live="polite"></span></h3>
+      <label for="student-note-${escapeHtml(s.folder)}" class="muted">Notes personnelles sur cet étudiant, pour ce cours (enregistrées automatiquement)</label>
+      <textarea id="student-note-${escapeHtml(s.folder)}" class="student-note-input" rows="3" placeholder="Ex. : à l'aise dans l'eau, appréhension pour la vidange du masque, allergie, rappeler le 15 octobre…">${escapeHtml(s.note || '')}</textarea>
+    </div>
     ${studentHasCertification(s) ? `
     <div class="certif-final">
       <h3>Certification</h3>
@@ -2137,6 +2146,29 @@ function buildStudentDetails(course, type, s) {
       toast('Erreur lors de la mise à jour : ' + friendlyError(e), true);
     }
   });
+
+  // Note libre par étudiant : enregistrée automatiquement (pause de frappe ou sortie du champ).
+  const noteInput = wrap.querySelector('.student-note-input');
+  const noteStatus = wrap.querySelector('.student-note-status');
+  let noteTimer = null, noteSaved = s.note || '';
+  async function saveNote() {
+    clearTimeout(noteTimer);
+    const note = noteInput.value;
+    if (note === noteSaved) return;
+    noteStatus.textContent = 'Enregistrement…';
+    try {
+      await api('PUT', `/api/courses/${encodeURIComponent(course.id)}/students/${encodeURIComponent(s.folder)}`, { note });
+      s.note = note; noteSaved = note;
+      noteStatus.textContent = '✓ Enregistré';
+      const flag = document.querySelector(`[data-note-flag="${s.folder}"]`);
+      if (flag) flag.style.display = note.trim() ? '' : 'none';
+    } catch (e) {
+      noteStatus.textContent = '';
+      toast('Erreur lors de l\'enregistrement de la note : ' + friendlyError(e), true);
+    }
+  }
+  noteInput.addEventListener('input', () => { noteStatus.textContent = ''; clearTimeout(noteTimer); noteTimer = setTimeout(saveNote, 1000); });
+  noteInput.addEventListener('blur', saveNote);
 
   const transferToggle = wrap.querySelector('.transfer-toggle');
   const transferText = wrap.querySelector('.transfer-final-text');
