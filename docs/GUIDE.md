@@ -350,7 +350,7 @@ Le numéro suggéré n'avance que lorsque vous enregistrez une facture avec ce n
 | Carte | Contenu |
 |---|---|
 | Répertoire racine | Dossier où sont rangés cours et documents |
-| Vos coordonnées | Nom, PADI, adresse, téléphone, courriel, CC et BCC par défaut |
+| Vos coordonnées | Nom, PADI, adresse, téléphone, courriel, CC et BCC par défaut, **messagerie utilisée** (application par défaut, Gmail ou Outlook web, avec compte Gmail facultatif) |
 | Centres partenaires | Centres qui vous mandatent (obligatoires pour créer un cours) |
 | Facturation | Devise, taxes, pied de page, étampe, grilles de tarifs |
 | Coéquipiers | Collègues et instructeurs (courriel, rôle) |

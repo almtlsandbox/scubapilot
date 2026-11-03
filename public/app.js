@@ -1,6 +1,62 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.5.1';
 const APP_RELEASE = 'Octobre 2026';
+
+// Lien de rédaction d'un courriel selon la messagerie choisie dans les Paramètres
+// (mailClient : 'default' = mailto, 'gmail', 'outlook'). Voir aussi mailLinkAttrs().
+function mailHref(o) {
+  o = o || {};
+  const e = encodeURIComponent;
+  const mode = (typeof state !== 'undefined' && state.settings && state.settings.mailClient) || 'default';
+  const acct = (typeof state !== 'undefined' && state.settings && state.settings.gmailAccount || '').trim();
+  const to = o.to || '', subject = o.subject || '', body = o.body || '', cc = o.cc || '', bcc = o.bcc || '';
+  if (mode === 'gmail') {
+    let u = 'https://mail.google.com/mail/?view=cm&fs=1';
+    if (acct) u += '&authuser=' + e(acct);
+    if (to) u += '&to=' + e(to);
+    if (cc) u += '&cc=' + e(cc);
+    if (bcc) u += '&bcc=' + e(bcc);
+    if (subject) u += '&su=' + e(subject);
+    if (body) u += '&body=' + e(body);
+    return u;
+  }
+  if (mode === 'outlook') {
+    let u = 'https://outlook.office.com/mail/deeplink/compose?';
+    const q = [];
+    if (to) q.push('to=' + e(to));
+    if (cc) q.push('cc=' + e(cc));
+    if (bcc) q.push('bcc=' + e(bcc));
+    if (subject) q.push('subject=' + e(subject));
+    if (body) q.push('body=' + e(body));
+    return u + q.join('&');
+  }
+  const q = [];
+  if (subject) q.push('subject=' + e(subject));
+  if (body) q.push('body=' + e(body));
+  if (cc) q.push('cc=' + e(cc));
+  if (bcc) q.push('bcc=' + e(bcc));
+  return 'mailto:' + e(to) + (q.length ? '?' + q.join('&') : '');
+}
+function mailIsWeb() {
+  const m = (state.settings && state.settings.mailClient) || 'default';
+  return m === 'gmail' || m === 'outlook';
+}
+function mailLabel() {
+  const m = (state.settings && state.settings.mailClient) || 'default';
+  return m === 'gmail' ? 'Ouvrir dans Gmail' : m === 'outlook' ? 'Ouvrir dans Outlook web' : 'Ouvrir dans le client mail';
+}
+// Ouvre le courriel (nouvel onglet pour une messagerie web)
+function openMail(o) {
+  const href = mailHref(o);
+  if (mailIsWeb()) window.open(href, '_blank', 'noopener');
+  else window.location.href = href;
+}
+// Configure un lien <a> existant
+function applyMailLink(a, o) {
+  a.href = mailHref(o);
+  a.textContent = mailLabel();
+  if (mailIsWeb()) { a.target = '_blank'; a.rel = 'noopener'; } else { a.removeAttribute('target'); a.removeAttribute('rel'); }
+}
 
 const state = { settings: null, courseTypes: [], sites: [], studentFields: [], emailTemplates: [], buddies: [], centers: [], billing: null };
 
@@ -1023,7 +1079,7 @@ function renderEmailBatch(box, course, type, tpl) {
     const bodyInput = item.querySelector('.em-body');
     const mailtoLink = item.querySelector('.em-mailto');
     const updateMailto = () => {
-      mailtoLink.href = `mailto:${encodeURIComponent(c.student.email)}?subject=${encodeURIComponent(subjInput.value)}&body=${encodeURIComponent(bodyInput.value)}`;
+      applyMailLink(mailtoLink, { to: c.student.email, subject: subjInput.value, body: bodyInput.value });
     };
     updateMailto();
     subjInput.addEventListener('input', updateMailto);
@@ -1079,10 +1135,7 @@ function renderGroupEmail(box, course, type, tpl) {
   const subjI = item.querySelector('#grp-subject'), bodyI = item.querySelector('#grp-body');
   const mailtoLink = item.querySelector('#grp-mailto');
   const updateMailto = () => {
-    let href = `mailto:${encodeURIComponent(toI.value)}?subject=${encodeURIComponent(subjI.value)}&body=${encodeURIComponent(bodyI.value)}`;
-    if (ccI.value) href += `&cc=${encodeURIComponent(ccI.value)}`;
-    if (bccI.value) href += `&bcc=${encodeURIComponent(bccI.value)}`;
-    mailtoLink.href = href;
+    applyMailLink(mailtoLink, { to: toI.value, subject: subjI.value, body: bodyI.value, cc: ccI.value, bcc: bccI.value });
   };
   updateMailto();
   [toI, ccI, bccI, subjI, bodyI].forEach(i => i.addEventListener('input', updateMailto));
@@ -1414,7 +1467,8 @@ function invoiceInnerHtml(course, inv, calc, base) {
     <tr><td><b>${escapeHtml(l.g.label)}</b>${inv.listNames && l.members.length ? `<div class="names">${l.members.map(m => escapeHtml(m.firstName + ' ' + m.lastName)).join(', ')}</div>` : ''}</td>
     <td class="c">${l.count} × ${fmtNum(l.share)}</td><td class="r">${fmtMoney(l.price)}</td><td class="r">${fmtMoney(l.total)}</td></tr>`).join('');
   const extraRows = calc.extras.filter(x => x.label || x.amount).map(x => `<tr><td>${escapeHtml(x.label)}</td><td class="c">1</td><td class="r">${fmtMoney(x.amount)}</td><td class="r">${fmtMoney(x.amount)}</td></tr>`).join('');
-  const taxRow = (on, t, amt) => `<tr><td>${escapeHtml(t.label)}${on ? ' (' + fmtNum(t.rate) + ' %)' : ''}</td><td class="r">${on ? fmtMoney(amt) : '—'}</td></tr>`;
+  const taxRow = (on, t, amt) => on ? `<tr><td>${escapeHtml(t.label)} (${fmtNum(t.rate)} %)</td><td class="r">${fmtMoney(amt)}</td></tr>` : '';
+  const anyTax = !!(inv.tps || inv.tvq);
   return `<div class="inv-sheet">
     <div class="inv-head">
       <div class="inv-from"><b>${escapeHtml(s.instructorName || '')}</b>${fromBits.map(b => '<div>' + escapeHtml(b) + '</div>').join('')}</div>
@@ -1434,7 +1488,7 @@ function invoiceInnerHtml(course, inv, calc, base) {
     <tbody>${rows}${extraRows}</tbody></table>
     ${inv.note ? `<div class="inv-note">${escapeHtml(inv.note)}</div>` : ''}
     <div class="inv-totals"><table>
-      <tr><td>SOUS-TOTAL</td><td class="r">${fmtMoney(calc.subtotal)}</td></tr>
+      ${anyTax ? `<tr><td>SOUS-TOTAL</td><td class="r">${fmtMoney(calc.subtotal)}</td></tr>` : ''}
       ${taxRow(inv.tps, state.billing.taxes.tps, calc.tps)}${taxRow(inv.tvq, state.billing.taxes.tvq, calc.tvq)}
       <tr class="grand"><td>TOTAL</td><td class="r">${fmtMoney(calc.total)}</td></tr></table></div>
     ${stamp}
@@ -1586,7 +1640,7 @@ async function openInvoiceForm(course, type) {
         const c = centerById(inv.centerId), calc = computeInvoice(course, inv);
         const subject = `Facture ${inv.number} — ${inv.ref}`;
         const body = `Bonjour${c && c.contactName ? ' ' + c.contactName : ''},\n\nVeuillez trouver ci-joint la facture ${inv.number} (${inv.ref}), au montant de ${fmtMoney(calc.total)}.\n\nMerci,\n${state.settings.instructorName || ''}`;
-        window.location.href = `mailto:${encodeURIComponent((c && c.email) || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        openMail({ to: (c && c.email) || '', subject, body });
         toast('Joignez le PDF (Imprimer / PDF) au courriel');
       } catch (e) { toast('Erreur : ' + friendlyError(e), true); }
     }, 'Préparation...'));
@@ -2009,10 +2063,8 @@ function buildStudentDetails(course, type, s) {
     mailSubject = mergeTemplate(tpl.subject, ctx);
     mailBody = mergeTemplate(tpl.body, ctx);
   }
-  const mailtoParams = [];
-  if (mailSubject) mailtoParams.push('subject=' + encodeURIComponent(mailSubject));
-  if (mailBody) mailtoParams.push('body=' + encodeURIComponent(mailBody));
-  const mailtoHref = s.email ? `mailto:${encodeURIComponent(s.email)}${mailtoParams.length ? '?' + mailtoParams.join('&') : ''}` : '';
+  const mailtoHref = s.email ? mailHref({ to: s.email, subject: mailSubject, body: mailBody }) : '';
+  const mailTarget = mailIsWeb() ? ' target="_blank" rel="noopener"' : '';
 
   wrap.innerHTML = `
     <div class="two-col">
@@ -2023,7 +2075,7 @@ function buildStudentDetails(course, type, s) {
         <div class="actions-inline">
           <button class="btn small secondary" data-act="edit-info">Modifier les infos</button>
           <button class="btn small secondary" data-act="open-folder">📂 Ouvrir le dossier</button>
-          ${s.email ? `<a class="btn small secondary" href="${escapeHtml(mailtoHref)}">✉️ Écrire un email</a>` : ''}
+          ${s.email ? `<a class="btn small secondary" href="${escapeHtml(mailtoHref)}"${mailTarget}>✉️ Écrire un email</a>` : ''}
           <button class="btn small danger" data-act="delete-student">Supprimer</button>
         </div>
         ${!s.email ? '<p class="muted" style="margin-top:6px">Renseignez une adresse email pour pouvoir lui écrire directement.</p>' : ''}
@@ -3407,6 +3459,16 @@ function renderSettings() {
       <input id="s-default-cc" value="${escapeHtml(s.defaultCc || '')}">
       <label for="s-default-bcc">CCI (BCC) par défaut pour l'email groupé (séparés par des virgules)</label>
       <input id="s-default-bcc" value="${escapeHtml(s.defaultBcc || '')}">
+      <div class="row">
+        <div><label for="s-mail-client">Messagerie utilisée pour les courriels</label>
+          <select id="s-mail-client">
+            <option value="default"${(s.mailClient || 'default') === 'default' ? ' selected' : ''}>Application par défaut de l'ordinateur</option>
+            <option value="gmail"${s.mailClient === 'gmail' ? ' selected' : ''}>Gmail (navigateur)</option>
+            <option value="outlook"${s.mailClient === 'outlook' ? ' selected' : ''}>Outlook web (navigateur)</option>
+          </select></div>
+        <div><label for="s-gmail-account">Compte Gmail à utiliser (facultatif)</label>
+          <input id="s-gmail-account" type="email" placeholder="vous@gmail.com" value="${escapeHtml(s.gmailAccount || '')}"></div>
+      </div>
       <div class="actions-inline"><button class="btn small" id="s-save-instructor">Enregistrer</button></div>
     </div>
 
@@ -3487,6 +3549,8 @@ function renderSettings() {
     s.instructorPhone = document.getElementById('s-instructor-phone').value;
     s.defaultCc = document.getElementById('s-default-cc').value;
     s.defaultBcc = document.getElementById('s-default-bcc').value;
+    s.mailClient = document.getElementById('s-mail-client').value;
+    s.gmailAccount = document.getElementById('s-gmail-account').value.trim();
     await api('PUT', '/api/settings', s);
     toast('Coordonnées enregistrées');
   });
