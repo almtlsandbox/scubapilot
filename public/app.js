@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.5.2';
 const APP_RELEASE = 'Octobre 2026';
 
 // Lien de rédaction d'un courriel selon la messagerie choisie dans les Paramètres
@@ -1414,7 +1414,7 @@ function defaultInvoice(course) {
     groups, assign, listNames: true,
     tps: false, tvq: false, showLogo: true, showStamp: true,
     note: names.filter(x => x.trim().toLowerCase() !== (state.settings.instructorName || '').trim().toLowerCase()).length ? `Cours ${courseTypeLabel(course.typeCode)} avec ${names.filter(x => x.trim().toLowerCase() !== (state.settings.instructorName || '').trim().toLowerCase()).join(', ')}` : '',
-    extras: [], groupsEdited: false
+    extras: [], kmNote: '', groupsEdited: false
   };
 }
 function computeInvoice(course, inv) {
@@ -1487,6 +1487,7 @@ function invoiceInnerHtml(course, inv, calc, base) {
     <table><thead><tr><th>Descriptions / Noms étudiants</th><th class="c">Nombre étudiants</th><th class="r">Prix unitaire</th><th class="r">Total</th></tr></thead>
     <tbody>${rows}${extraRows}</tbody></table>
     ${inv.note ? `<div class="inv-note">${escapeHtml(inv.note)}</div>` : ''}
+    ${inv.kmNote ? `<div class="inv-note">${escapeHtml(inv.kmNote)}</div>` : ''}
     <div class="inv-totals"><table>
       ${anyTax ? `<tr><td>SOUS-TOTAL</td><td class="r">${fmtMoney(calc.subtotal)}</td></tr>` : ''}
       ${taxRow(inv.tps, state.billing.taxes.tps, calc.tps)}${taxRow(inv.tvq, state.billing.taxes.tvq, calc.tvq)}
@@ -1558,6 +1559,7 @@ async function openInvoiceForm(course, type) {
           <label class="checklist-item"><input type="checkbox" id="inv-logo" ${inv.showLogo ? 'checked' : ''}> Afficher le logo ScubaPilot</label>
           <label class="checklist-item"><input type="checkbox" id="inv-stamp" ${inv.showStamp ? 'checked' : ''}> Apposer l'étampe ${state.stamp ? '' : '(aucune image : à ajouter dans Paramètres → Facturation)'}</label>
           <label for="inv-note">Note libre</label><input id="inv-note" value="${escapeHtml(inv.note)}">
+          <label for="inv-kmnote">Note kilométrage</label><input id="inv-kmnote" placeholder="ex. : Déplacement : 120 km aller-retour × 0,70 $/km" value="${escapeHtml(inv.kmNote || '')}">
           <h3 style="margin-top:12px">Lignes supplémentaires (frais, rabais…)</h3>
           <div id="inv-extras"></div>
           <button class="btn secondary small" id="inv-addextra">+ Ligne supplémentaire</button>
@@ -1603,7 +1605,7 @@ async function openInvoiceForm(course, type) {
       ex.appendChild(row);
     });
     const bind = (id, key, isCheck) => page.querySelector(id).addEventListener(isCheck ? 'change' : 'input', e => { inv[key] = isCheck ? e.target.checked : e.target.value; refresh(); });
-    bind('#inv-number', 'number'); bind('#inv-date', 'date'); bind('#inv-ref', 'ref'); bind('#inv-note', 'note');
+    bind('#inv-number', 'number'); bind('#inv-date', 'date'); bind('#inv-ref', 'ref'); bind('#inv-note', 'note'); bind('#inv-kmnote', 'kmNote');
     bind('#inv-names', 'listNames', true); bind('#inv-tps', 'tps', true); bind('#inv-tvq', 'tvq', true); bind('#inv-logo', 'showLogo', true); bind('#inv-stamp', 'showStamp', true);
     page.querySelector('#inv-center').addEventListener('change', e => {
       inv.centerId = e.target.value;
