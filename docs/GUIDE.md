@@ -340,6 +340,15 @@ Exemple : 6 étudiants « Cours complet » (0,5 × 120 $ = 360 $) et 4 étudiant
 
 Le numéro suggéré n'avance que lorsque vous enregistrez une facture avec ce numéro ; si vous le modifiez à la main, le compteur n'est pas touché.
 
+### 9.4 Suivi : soumise et payée
+
+Dans l'éditeur de facture, la carte **« 5 · Suivi de la facture »** permet de dater deux étapes :
+
+- **Soumise au centre** : cochez la case ; la date du jour est proposée, modifiable.
+- **Payée** : même principe, avec la date de paiement.
+
+Décochez une case pour effacer sa date. Ces changements **s'enregistrent automatiquement**. Le statut apparaît ensuite à côté du bouton « Facture » dans la fiche du cours et dans la colonne **Facture** du tableau de bord (— = aucune facture, *Brouillon*, *Soumise · date* en orange, *Payée · date* en vert). Un avertissement s'affiche si la date de paiement précède la date de soumission.
+
 ## 10. Rapports et sommaire
 
 - **Rapport de cours** (fiche du cours → **🖨️ Exporter un rapport**) : séances, documents généraux et, pour chaque étudiant, coordonnées, âge, checklist détaillée, certification ou transfert, instructeur certificateur. Impression ou PDF depuis l'onglet qui s'ouvre.

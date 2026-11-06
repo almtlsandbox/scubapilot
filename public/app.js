@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.5.2';
+const APP_VERSION = '1.6';
 const APP_RELEASE = 'Octobre 2026';
 
 // Lien de rédaction d'un courriel selon la messagerie choisie dans les Paramètres
@@ -97,11 +97,31 @@ async function withBusy(btn, fn, busyText) {
   }
 }
 function toast(msg, isError) {
-  const el = document.createElement('div');
-  el.className = 'toast-msg' + (isError ? ' error' : '');
-  el.textContent = msg;
-  document.getElementById('toast').appendChild(el);
-  setTimeout(() => el.remove(), 3500);
+  const box = document.getElementById('toast');
+  const node = document.createElement('div');
+  node.className = 'toast-msg' + (isError ? ' error' : '');
+  node.setAttribute('role', isError ? 'alert' : 'status');
+  const text = document.createElement('span');
+  text.className = 'toast-text';
+  text.textContent = msg;
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'toast-close';
+  close.setAttribute('aria-label', 'Fermer la notification');
+  close.textContent = '×';
+  node.appendChild(text); node.appendChild(close);
+  box.appendChild(node);
+  // Les erreurs restent plus longtemps ; le survol met la minuterie en pause.
+  const base = isError ? 10000 : 4000;
+  let timer = null;
+  const dismiss = () => { clearTimeout(timer); node.remove(); };
+  const arm = () => { clearTimeout(timer); timer = setTimeout(dismiss, base); };
+  close.addEventListener('click', dismiss);
+  node.addEventListener('mouseenter', () => clearTimeout(timer));
+  node.addEventListener('mouseleave', arm);
+  node.addEventListener('focusin', () => clearTimeout(timer));
+  node.addEventListener('focusout', arm);
+  arm();
 }
 function el(html) { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; }
 // Un <tr> autonome ne peut pas être parsé correctement via innerHTML d'un <div>
@@ -218,7 +238,7 @@ function showConfirmModal({ title, message, confirmText, requireTypeText }) {
   return new Promise(resolve => {
     const overlay = el(`
       <div class="modal-overlay">
-        <div class="modal-box">
+        <div class="modal-box" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
           <h3>${escapeHtml(title)}</h3>
           <p>${message}</p>
           ${requireTypeText ? `<p class="muted">Tapez <strong>${escapeHtml(requireTypeText)}</strong> ci-dessous pour confirmer :</p><input id="confirm-type-input">` : ''}
@@ -237,13 +257,44 @@ function showConfirmModal({ title, message, confirmText, requireTypeText }) {
       input.addEventListener('input', () => { yesBtn.disabled = input.value.trim() !== requireTypeText; });
       setTimeout(() => input.focus(), 0);
     }
-    function cleanup(result) { overlay.remove(); resolve(result); }
+    const prevFocus = document.activeElement;
+    function onKey(e) {
+      if (e.key === 'Escape') cleanup(false);
+      else if (e.key === 'Tab') { // garde le focus dans la fenêtre
+        const f = [...overlay.querySelectorAll('input,button:not([disabled])')];
+        if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    function cleanup(result) {
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      if (prevFocus && prevFocus.focus) { try { prevFocus.focus(); } catch (e) {} }
+      resolve(result);
+    }
     yesBtn.addEventListener('click', () => cleanup(true));
     noBtn.addEventListener('click', () => cleanup(false));
     overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
-    document.addEventListener('keydown', function onKey(e) {
-      if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); cleanup(false); }
-    });
+    document.addEventListener('keydown', onKey);
+    if (!requireTypeText) setTimeout(() => noBtn.focus(), 0); // « Annuler » par défaut : évite de valider par réflexe
+  });
+}
+// Confirmation de suppression simple (texte brut, échappé)
+function confirmDelete(message, opts) {
+  opts = opts || {};
+  return showConfirmModal({ title: opts.title || 'Confirmer la suppression', message: escapeHtml(message), confirmText: opts.confirmText || 'Supprimer' });
+}
+
+// Rend un élément non-bouton (en-tête, ligne de tableau) utilisable au clavier : Tab + Entrée/Espace.
+function makeActivatable(node, role, label) {
+  node.setAttribute('tabindex', '0');
+  node.setAttribute('role', role || 'button');
+  if (label) node.setAttribute('aria-label', label);
+  node.addEventListener('keydown', e => {
+    if (e.target !== node) return; // ne pas intercepter les liens/boutons à l'intérieur
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); node.click(); }
   });
 }
 
@@ -374,9 +425,11 @@ function buildCourseRow(c) {
       <td>${c.stats.studentCount}</td>
       <td><span class="badge ${badgeClass(pre)}">${pre}%</span></td>
       <td><span class="badge ${badgeClass(post)}">${post}%</span></td>
+      <td>${invoiceBadgeHtml(c, true)}</td>
     </tr>
   `);
   tr.addEventListener('click', () => location.hash = '#/course/' + encodeURIComponent(c.id));
+  makeActivatable(tr, 'link', 'Ouvrir le cours ' + courseTypeLabel(c.typeCode) + ' ' + c.id);
   return tr;
 }
 
@@ -384,7 +437,7 @@ function buildCourseTable(list) {
   const table = el(`
     <div class="card">
       <table>
-        <thead><tr><th>Statut</th><th>Cours</th><th>Dates</th><th>Site</th><th>Centre</th><th>Étudiants</th><th>Pré-cours</th><th>Post-cours</th></tr></thead>
+        <thead><tr><th>Statut</th><th>Cours</th><th>Dates</th><th>Site</th><th>Centre</th><th>Étudiants</th><th>Pré-cours</th><th>Post-cours</th><th>Facture</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -882,7 +935,7 @@ function buildSessionsCard(course) {
         toast('Séance mise à jour');
       });
       tr.querySelector('button.danger').addEventListener('click', async () => {
-        if (!confirm('Supprimer cette séance ?')) return;
+        if (!(await confirmDelete('Supprimer cette séance ?'))) return;
         course.sessions.splice(realIdx, 1);
         await persistSessions();
         toast('Séance supprimée');
@@ -1372,6 +1425,26 @@ function fmtMoney(n) {
   const sym = (cur === 'CAD' || cur === 'USD') ? '$' : cur;
   return (Number(n) || 0).toLocaleString('fr-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + sym;
 }
+// Suivi de la facture : brouillon -> soumise (date) -> payée (date). Dates ISO stockées dans course.invoice.
+function shortDate(iso) {
+  if (!iso) return '';
+  return new Date(iso + 'T00:00:00').toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function invoiceStatus(course) {
+  const inv = course && course.invoice;
+  if (!inv) return { key: 'none', label: 'Aucune facture', cls: '', short: '—' };
+  if (inv.paidDate) return { key: 'paid', label: 'Payée le ' + shortDate(inv.paidDate), cls: 'ok', short: 'Payée', date: inv.paidDate };
+  if (inv.submittedDate) return { key: 'submitted', label: 'Soumise le ' + shortDate(inv.submittedDate) + ' — en attente de paiement', cls: 'warn', short: 'Soumise', date: inv.submittedDate };
+  return { key: 'draft', label: 'Brouillon — non soumise', cls: '', short: 'Brouillon' };
+}
+function invoiceBadgeHtml(course, withDate) {
+  const st = invoiceStatus(course);
+  if (st.key === 'none') return '<span class="muted">—</span>';
+  const txt = withDate && st.date ? `${st.short} · ${shortDate(st.date)}` : st.short;
+  return st.cls
+    ? `<span class="badge ${st.cls}" title="${escapeHtml(st.label)}">${st.key === 'paid' ? '💵' : '📤'} ${escapeHtml(txt)}</span>`
+    : `<span class="tag-status" title="${escapeHtml(st.label)}">${escapeHtml(txt)}</span>`;
+}
 function suggestInvoiceNumber() {
   const y = new Date().getFullYear();
   const c = state.billing.counter || {};
@@ -1414,7 +1487,7 @@ function defaultInvoice(course) {
     groups, assign, listNames: true,
     tps: false, tvq: false, showLogo: true, showStamp: true,
     note: names.filter(x => x.trim().toLowerCase() !== (state.settings.instructorName || '').trim().toLowerCase()).length ? `Cours ${courseTypeLabel(course.typeCode)} avec ${names.filter(x => x.trim().toLowerCase() !== (state.settings.instructorName || '').trim().toLowerCase()).join(', ')}` : '',
-    extras: [], kmNote: '', groupsEdited: false
+    extras: [], kmNote: '', submittedDate: '', paidDate: '', groupsEdited: false
   };
 }
 function computeInvoice(course, inv) {
@@ -1564,6 +1637,23 @@ async function openInvoiceForm(course, type) {
           <div id="inv-extras"></div>
           <button class="btn secondary small" id="inv-addextra">+ Ligne supplémentaire</button>
         </div>
+        <div class="card"><h3>5 · Suivi de la facture</h3>
+          <p class="muted" id="inv-status-summary"></p>
+          <div class="row">
+            <div>
+              <label class="checklist-item"><input type="checkbox" id="inv-submitted" ${inv.submittedDate ? 'checked' : ''}> Soumise au centre</label>
+              <label for="inv-submitted-date">Date de soumission</label>
+              <input type="date" id="inv-submitted-date" value="${escapeHtml(inv.submittedDate || '')}" ${inv.submittedDate ? '' : 'disabled'}>
+            </div>
+            <div>
+              <label class="checklist-item"><input type="checkbox" id="inv-paid" ${inv.paidDate ? 'checked' : ''}> Payée</label>
+              <label for="inv-paid-date">Date de paiement</label>
+              <input type="date" id="inv-paid-date" value="${escapeHtml(inv.paidDate || '')}" ${inv.paidDate ? '' : 'disabled'}>
+            </div>
+          </div>
+          <p class="muted" id="inv-status-warn" style="color:var(--red)"></p>
+          <p class="muted">Ces changements s'enregistrent automatiquement.</p>
+        </div>
       </div>
       <div><div style="font-size:12px;color:var(--text-light,#4a6071);margin-bottom:6px">Aperçu en direct</div><div class="inv-preview" id="inv-preview"></div></div></div>
     </div>`);
@@ -1628,6 +1718,25 @@ async function openInvoiceForm(course, type) {
       inv.groups.push({ id: 'g' + n, label: 'Nouveau groupe', price: 0, share: inv.groups[0] ? inv.groups[0].share : 1 }); inv.groupsEdited = true; build();
     });
     page.querySelector('#inv-addextra').addEventListener('click', () => { inv.extras.push({ label: '', amount: 0 }); build(); });
+    // --- Suivi de la facture (soumise / payée) : enregistré tout de suite ---
+    const subChk = page.querySelector('#inv-submitted'), subDate = page.querySelector('#inv-submitted-date');
+    const paidChk = page.querySelector('#inv-paid'), paidDate = page.querySelector('#inv-paid-date');
+    function refreshStatusUi() {
+      const st = invoiceStatus({ invoice: inv });
+      page.querySelector('#inv-status-summary').textContent = 'Statut : ' + (st.key === 'draft' ? 'Brouillon — non soumise' : st.label);
+      subDate.disabled = !subChk.checked; paidDate.disabled = !paidChk.checked;
+      page.querySelector('#inv-status-warn').textContent =
+        (inv.submittedDate && inv.paidDate && inv.paidDate < inv.submittedDate) ? '⚠ La date de paiement précède la date de soumission.' : '';
+    }
+    async function saveStatus() {
+      refreshStatusUi();
+      try { await save(); toast('Suivi de la facture enregistré'); } catch (e) { toast('Erreur : ' + friendlyError(e), true); }
+    }
+    subChk.addEventListener('change', () => { inv.submittedDate = subChk.checked ? (subDate.value || todayISO()) : ''; subDate.value = inv.submittedDate; saveStatus(); });
+    paidChk.addEventListener('change', () => { inv.paidDate = paidChk.checked ? (paidDate.value || todayISO()) : ''; paidDate.value = inv.paidDate; saveStatus(); });
+    subDate.addEventListener('change', () => { inv.submittedDate = subDate.value; if (!subDate.value) subChk.checked = false; saveStatus(); });
+    paidDate.addEventListener('change', () => { inv.paidDate = paidDate.value; if (!paidDate.value) paidChk.checked = false; saveStatus(); });
+    refreshStatusUi();
     page.querySelector('#inv-back').addEventListener('click', () => renderCourseDetail(course.id));
 
     page.querySelector('#inv-save').addEventListener('click', ev => withBusy(ev.currentTarget, async () => {
@@ -1715,6 +1824,7 @@ async function renderCourseDetail(id) {
           <button class="btn secondary small" id="edit-course-btn">Modifier les notes / le centre / les instructeurs</button>
           <button class="btn secondary small" id="export-report-btn">🖨️ Exporter un rapport (imprimable)</button>
           <button class="btn secondary small" id="export-invoice-btn">🧾 Facture</button>
+          <span id="course-invoice-status" style="align-self:center">${invoiceBadgeHtml(course, true)}</span>
           <button class="btn danger small" id="delete-course-btn">Supprimer le cours</button>
         </div>
         <label class="checklist-item course-completed-toggle-label" style="margin:0">
@@ -1900,7 +2010,7 @@ async function renderStudentProfile(key) {
         <td style="white-space:pre-wrap;max-width:260px">${record.note && record.note.trim() ? escapeHtml(record.note) : '<span class="muted">-</span>'}</td>
       </tr>
     `);
-    if (course) tr.addEventListener('click', () => location.hash = '#/course/' + encodeURIComponent(course.id));
+    if (course) { tr.addEventListener('click', () => location.hash = '#/course/' + encodeURIComponent(course.id)); makeActivatable(tr, 'link', 'Ouvrir le cours ' + course.id); }
     historyBox.appendChild(tr);
   });
 
@@ -2041,9 +2151,12 @@ function renderStudentBlock(course, type, s) {
   `);
   const header = block.querySelector('.student-header');
   const details = block.querySelector('.student-details');
+  makeActivatable(header, 'button');
+  header.setAttribute('aria-expanded', 'false');
   header.addEventListener('click', () => {
-    if (details.classList.contains('open')) { details.classList.remove('open'); return; }
+    if (details.classList.contains('open')) { details.classList.remove('open'); header.setAttribute('aria-expanded', 'false'); return; }
     details.classList.add('open');
+    header.setAttribute('aria-expanded', 'true');
     if (!details.dataset.loaded) {
       details.appendChild(buildStudentDetails(course, type, s));
       details.dataset.loaded = '1';
@@ -2665,7 +2778,7 @@ function buildEmailTemplatesCard() {
       `);
       row.querySelector('[data-act=edit]').addEventListener('click', () => showForm(t));
       row.querySelector('[data-act=del]').addEventListener('click', async () => {
-        if (!confirm(`Supprimer le modèle "${t.name}" ?`)) return;
+        if (!(await confirmDelete(`Supprimer le modèle "${t.name}" ?`))) return;
         state.emailTemplates = state.emailTemplates.filter(x => x.id !== t.id);
         await api('PUT', '/api/email-templates', state.emailTemplates);
         toast('Modèle supprimé');
@@ -2752,7 +2865,7 @@ function buildBuddiesCard() {
       `);
       row.querySelector('[data-act=edit]').addEventListener('click', () => showForm(b));
       row.querySelector('[data-act=del]').addEventListener('click', async () => {
-        if (!confirm(`Supprimer "${b.name}" de la liste des coéquipiers ?`)) return;
+        if (!(await confirmDelete(`Supprimer "${b.name}" de la liste des coéquipiers ?`))) return;
         state.buddies = state.buddies.filter(x => x.id !== b.id);
         await api('PUT', '/api/buddies', state.buddies);
         toast('Coéquipier supprimé');
@@ -2841,7 +2954,7 @@ function buildCentersCard() {
       `);
       row.querySelector('[data-act=edit]').addEventListener('click', () => showForm(c));
       row.querySelector('[data-act=del]').addEventListener('click', async () => {
-        if (!confirm(`Supprimer le centre "${c.name}" ?`)) return;
+        if (!(await confirmDelete(`Supprimer le centre "${c.name}" ?`))) return;
         state.centers = state.centers.filter(x => x.id !== c.id);
         await api('PUT', '/api/centers', state.centers);
         toast('Centre supprimé');
@@ -3087,7 +3200,7 @@ function buildCourseTypesCard() {
       `);
       row.querySelector('[data-act=edit]').addEventListener('click', () => showForm(t));
       row.querySelector('[data-act=del]').addEventListener('click', async () => {
-        if (!confirm(`Supprimer le type de cours "${t.label}" ? Les cours déjà créés avec ce type conservent leurs données, mais ce type ne sera plus proposé pour un nouveau cours.`)) return;
+        if (!(await confirmDelete(`Supprimer le type de cours "${t.label}" ? Les cours déjà créés avec ce type conservent leurs données, mais ce type ne sera plus proposé pour un nouveau cours.`))) return;
         const next = state.courseTypes.filter(x => x.code !== t.code);
         try {
           await api('PUT', '/api/course-types', next);
@@ -3193,7 +3306,7 @@ function buildSitesCard() {
       `);
       row.querySelector('[data-act=edit]').addEventListener('click', () => showForm(s2));
       row.querySelector('[data-act=del]').addEventListener('click', async () => {
-        if (!confirm(`Supprimer le site "${s2.name}" ?`)) return;
+        if (!(await confirmDelete(`Supprimer le site "${s2.name}" ?`))) return;
         const next = state.sites.filter(x => x.id !== s2.id);
         try {
           await api('PUT', '/api/sites', next);
@@ -3287,7 +3400,7 @@ function buildStudentFieldsCard() {
         const warn = (f.id === 'firstName' || f.id === 'lastName')
           ? ` Attention : "${f.label}" sert à nommer le dossier de l'étudiant sur le disque — le supprimer peut empêcher la création de nouveaux étudiants.`
           : '';
-        if (!confirm(`Supprimer le champ "${f.label}" ?${warn}`)) return;
+        if (!(await confirmDelete(`Supprimer le champ "${f.label}" ?${warn}`))) return;
         const next = state.studentFields.filter(x => x.id !== f.id);
         try {
           await api('PUT', '/api/student-fields', next);
