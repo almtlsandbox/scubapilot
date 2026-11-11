@@ -422,10 +422,16 @@ Le logo est le fichier `public/logo.svg`. Pour le remplacer, écrasez ce fichier
 
 ## 13. Sauvegarde
 
-Deux choses à sauvegarder : le **répertoire racine** (vos cours) et le dossier **`data/`** (vos réglages).
+Paramètres → carte **Sauvegarde** → bouton de création. L'application crée un .zip et vous laisse choisir où l'enregistrer (clé USB, disque externe...). Depuis la version 1.7, ce zip contient **tout** :
 
-- **Répertoire racine** : Paramètres → carte **Sauvegarde** → bouton de création. L'application crée un .zip de tout le répertoire (cours, documents, photos) et vous laisse choisir où l'enregistrer (clé USB, disque externe, OneDrive, etc.). Le nom inclut la date : `PLONGEE_BACKUP_AAAAMMJJ_HHMM.zip`. Pour un gros répertoire, comptez quelques dizaines de secondes à quelques minutes ; le bouton reste désactivé pendant ce temps.
-- **Dossier `data/`** : copiez-le manuellement de temps en temps (ou après chaque changement important de configuration).
+- le **répertoire racine** : cours, étudiants, documents, photos ;
+- vos **réglages** (centres, tarifs, modèles d'email, types de cours, sites, étampe), rangés dans le dossier `_ScubaPilot-parametres` du zip.
+
+**Restaurer les réglages** : fermez ScubaPilot, copiez les fichiers `.json` du dossier `_ScubaPilot-parametres` dans le dossier `data/` de l'application, puis relancez. Un fichier `LISEZ-MOI.txt` dans le zip le rappelle.
+
+### Si un fichier est signalé « illisible »
+
+Si une écriture est interrompue (panne, conflit de synchronisation OneDrive), un fichier `course.json` ou `student.json` peut devenir illisible. ScubaPilot l'indique alors par un badge rouge **⚠ Fichier illisible** (tableau de bord) ou **⚠ Fiche illisible** (étudiant) et **refuse toute modification** de ce fichier, pour ne pas écraser son contenu. Vos documents ne sont pas touchés. Pour réparer : dans l'Explorateur, clic droit sur le fichier → **Historique des versions** (OneDrive) et restaurez la version précédente, ou reprenez le fichier d'une sauvegarde ; rechargez ensuite la page.
 
 Conseil : sauvegardez avant toute suppression de cours et avant chaque mise à jour.
 
@@ -480,6 +486,8 @@ Avec Git : `git pull`, puis `npm install` si nécessaire. Vos fichiers `data/` m
 ## 16. Notes techniques
 
 - Serveur Node.js (Express) uniquement local, sur `localhost:4531` ; rien n'est envoyé sur internet.
+- **Accès limité à cet ordinateur** (depuis la version 1.7) : le serveur n'écoute que sur `127.0.0.1` et refuse les requêtes venant d'un autre appareil du réseau. L'application n'ayant pas de mot de passe, c'est ce qui protège vos dossiers sur un Wi-Fi partagé.
+- Les fichiers de données sont écrits de façon atomique (fichier temporaire puis renommage) : une coupure laisse l'ancienne version intacte.
 - Interface en JavaScript pur (sans framework), données en fichiers JSON : aucune base de données à installer.
 - Le bouton « Ouvrir dans l'Explorateur » utilise la commande Windows `explorer` ; la sauvegarde utilise `Compress-Archive` (PowerShell). Sous macOS ou Linux, ces deux fonctions sont à adapter.
 - Les fichiers statiques sont servis sans cache, et les scripts sont référencés avec un numéro de version pour éviter les anciennes copies.

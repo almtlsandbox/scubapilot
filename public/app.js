@@ -1,6 +1,6 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.6';
-const APP_RELEASE = 'Octobre 2026';
+const APP_VERSION = '1.7';
+const APP_RELEASE = 'Novembre 2026';
 
 // Lien de rédaction d'un courriel selon la messagerie choisie dans les Paramètres
 // (mailClient : 'default' = mailto, 'gmail', 'outlook'). Voir aussi mailLinkAttrs().
@@ -77,6 +77,13 @@ function friendlyError(e) {
   const raw = (e && e.message) || '';
   if (!raw || raw === 'ERROR') return "Une erreur est survenue. Réessayez, et si le problème persiste, vérifiez votre connexion ou le répertoire racine dans Paramètres.";
   if (raw === 'INVALID_DATE') return 'Date invalide : utilisez le format JJ/MM/AAAA.';
+  if (raw === 'CORRUPT_FILE') {
+    const f = e.data && e.data.file ? ` (${e.data.file})` : '';
+    return `Un fichier de données est illisible${f}. Rien n'a été modifié, pour ne pas écraser son contenu. Restaurez une version précédente du fichier (clic droit sur le fichier → Historique des versions dans OneDrive) ou depuis une sauvegarde, puis rechargez la page.`;
+  }
+  if (raw === 'INVALID_PATH') return "Nom de dossier invalide : l'opération a été refusée.";
+  if (raw === 'NOT_A_COURSE' || raw === 'NOT_A_STUDENT') return "Ce dossier n'est pas un cours ou un étudiant géré par ScubaPilot : il n'a pas été supprimé.";
+  if (e instanceof TypeError && /fetch|network/i.test(raw)) return "ScubaPilot ne répond pas : le programme est arrêté. Relancez-le (« Lancer (avec fenetre).bat »), puis rechargez la page.";
   if (/^[A-Z0-9_]+$/.test(raw)) return `Une erreur est survenue (code : ${raw}). Réessayez.`;
   return raw;
 }
@@ -408,6 +415,14 @@ function courseStatusInfo(c) {
 }
 
 function buildCourseRow(c) {
+  if (c.corrupted) {
+    return elRow(`
+      <tr>
+        <td><span class="badge bad">⚠ Fichier illisible</span></td>
+        <td colspan="8"><strong>${escapeHtml(c.id)}</strong><br><span class="muted">Le fichier course.json de ce dossier est illisible. Vos documents sont intacts : restaurez une version précédente de course.json (OneDrive → Historique des versions) ou reprenez-le d'une sauvegarde.</span></td>
+      </tr>
+    `);
+  }
   const pre = c.stats.prePercent, post = c.stats.postPercent;
   const sessions = c.sessions || [];
   const dateText = sessions.length
@@ -422,7 +437,7 @@ function buildCourseRow(c) {
       <td>${dateText} ${c._isPast ? '<span class="tag-status">Passé</span>' : ''}</td>
       <td>${escapeHtml(siteText)}</td>
       <td>${escapeHtml(centerLabel(c.centerId))}</td>
-      <td>${c.stats.studentCount}</td>
+      <td>${c.stats.studentCount}${c.stats.corruptedStudents ? ` <span class="badge bad" title="${c.stats.corruptedStudents} fiche(s) d'étudiant illisible(s) : ouvrez le cours pour voir lesquelles">⚠ ${c.stats.corruptedStudents}</span>` : ''}</td>
       <td><span class="badge ${badgeClass(pre)}">${pre}%</span></td>
       <td><span class="badge ${badgeClass(post)}">${post}%</span></td>
       <td>${invoiceBadgeHtml(c, true)}</td>
@@ -586,7 +601,7 @@ async function renderDashboard() {
 
 // ---------- Sommaire global des activités accomplies (tous cours confondus) ----------
 function exportActivitySummary(courses) {
-  const rows = courses.slice().sort((a, b) => {
+  const rows = courses.filter(c => !c.corrupted).sort((a, b) => {
     const da = (a.sessions && a.sessions[0] && a.sessions[0].date) || '';
     const db = (b.sessions && b.sessions[0] && b.sessions[0].date) || '';
     return db.localeCompare(da); // plus récent en premier
@@ -2135,7 +2150,7 @@ function renderStudentBlock(course, type, s) {
           <strong>${escapeHtml(s.firstName)} ${escapeHtml(s.lastName)}</strong>
           <a href="#/student/${encodeURIComponent(studentKey(s))}" class="muted" style="font-size:12px;text-decoration:underline" data-act="profile-link" title="Voir tous les cours de cet étudiant">fiche globale</a>
           <span class="tag-status">${escapeHtml(statusLabel)}</span>
-          ${missingInfo.length ? `<span class="badge bad" title="Manque : ${escapeHtml(missingInfo.join(', '))}">⚠ Infos incomplètes</span>` : ''}
+          ${s.corrupted ? '<span class="badge bad" title="Le fichier student.json de cet étudiant est illisible. Restaurez une version précédente (OneDrive → Historique des versions). Toute modification est refusée en attendant.">⚠ Fiche illisible</span>' : (missingInfo.length ? `<span class="badge bad" title="Manque : ${escapeHtml(missingInfo.join(', '))}">⚠ Infos incomplètes</span>` : '')}
           <span class="badge note-flag" data-note-flag="${escapeHtml(s.folder)}" style="${s.note && s.note.trim() ? '' : 'display:none'}" title="${escapeHtml((s.note || '').slice(0, 200))}">📝 Note</span>
         </div>
         <div>
@@ -3551,7 +3566,7 @@ function renderSettings() {
 
     <div class="card">
       <h2>Sauvegarde</h2>
-      <p class="muted">Crée une copie .zip de tout le répertoire racine (tous les cours, étudiants et documents) et propose de l'enregistrer où vous voulez (clé USB, cloud, autre disque...). Nom du fichier : <code>PLONGEE_BACKUP_AAAAMMJJ_HHMM.zip</code>.</p>
+      <p class="muted">Crée une copie .zip de tout le répertoire racine (tous les cours, étudiants et documents) <strong>et de vos réglages</strong> (centres, tarifs, modèles d'email, types de cours, étampe — rangés dans le dossier <code>_ScubaPilot-parametres</code> du zip) et propose de l'enregistrer où vous voulez (clé USB, cloud, autre disque...). Nom du fichier : <code>PLONGEE_BACKUP_AAAAMMJJ_HHMM.zip</code>.</p>
       <div class="actions-inline">
         <button class="btn small" id="s-backup-btn">💾 Créer une sauvegarde (.zip)</button>
       </div>

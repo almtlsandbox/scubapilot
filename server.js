@@ -2,9 +2,21 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { exec, execFile } = require('child_process');
+const { execFile } = require('child_process');
 
 const app = express();
+const PORT = 4531;
+// L'application n'est destinée qu'à cet ordinateur. On refuse toute requête qui ne vise pas
+// localhost (protection contre un site web malveillant qui ferait pointer son nom de domaine
+// vers 127.0.0.1) ; voir aussi app.listen() en bas, qui n'écoute que sur 127.0.0.1.
+const HOST = process.env.SCUBAPILOT_HOST || '127.0.0.1';
+const LOCAL_ONLY = HOST === '127.0.0.1' || HOST === 'localhost' || HOST === '::1';
+app.use((req, res, next) => {
+  if (!LOCAL_ONLY) return next();
+  const host = String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
+  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return next();
+  res.status(403).json({ error: 'FORBIDDEN_HOST' });
+});
 // Limite relevée : les documents glissés-déposés sont envoyés en base64 dans le corps JSON.
 app.use(express.json({ limit: '25mb' }));
 // no-cache : le navigateur revalide à chaque chargement, pour qu'une mise à jour de l'application
@@ -21,16 +33,76 @@ const BUDDIES_FILE = path.join(DATA_DIR, 'buddies.json');
 const CENTERS_FILE = path.join(DATA_DIR, 'centers.json');
 const BILLING_FILE = path.join(DATA_DIR, 'billing.json');
 
-function readJSON(file, fallback) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return fallback; }
+function parseJSONText(txt) {
+  // Un fichier retouché dans le Bloc-notes peut commencer par un BOM : on l'ignore.
+  return JSON.parse(txt.charCodeAt(0) === 0xFEFF ? txt.slice(1) : txt);
 }
+// Lecture tolérante : renvoie `fallback` si le fichier est absent OU illisible. À réserver aux
+// lectures purement informatives (statistiques, recherche) qui ne sont jamais réécrites ensuite.
+function readJSON(file, fallback) {
+  try { return parseJSONText(fs.readFileSync(file, 'utf8')); } catch (e) { return fallback; }
+}
+// Lecture stricte : `fallback` seulement si le fichier n'existe pas. S'il existe mais est illisible
+// (écriture interrompue, conflit de synchronisation OneDrive, fichier vide...), on lève CORRUPT_FILE
+// au lieu de faire comme s'il était vide — sinon la prochaine sauvegarde écraserait les données.
+function readJSONStrict(file, fallback) {
+  let txt;
+  try { txt = fs.readFileSync(file, 'utf8'); }
+  catch (e) { if (e.code === 'ENOENT') return fallback; throw corruptError(file); }
+  try { return parseJSONText(txt); } catch (e) { throw corruptError(file); }
+}
+function corruptError(file) { const err = new Error('CORRUPT_FILE'); err.file = file; return err; }
+function isCorrupt(file) {
+  try { readJSONStrict(file, null); return false; } catch (e) { return true; }
+}
+// Écriture atomique : on écrit dans un fichier temporaire voisin puis on le renomme par-dessus
+// l'original. Une coupure en cours d'écriture laisse donc l'ancien fichier intact, jamais un
+// fichier à moitié écrit. Sous OneDrive le renommage peut échouer un instant (fichier verrouillé
+// par la synchronisation) : on réessaie, puis on retombe sur une écriture directe.
+function sleepMs(ms) { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch (e) {} }
 function writeJSON(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+  const txt = JSON.stringify(data, null, 2);
+  if (txt === undefined) throw new Error('INVALID_DATA');
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, txt, 'utf8');
+    for (let attempt = 0; ; attempt++) {
+      try { fs.renameSync(tmp, file); return; }
+      catch (e) {
+        if (attempt >= 4 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) throw e;
+        sleepMs(60 * (attempt + 1));
+      }
+    }
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (e2) {}
+    fs.writeFileSync(file, txt, 'utf8');
+  }
 }
 function getRoot() {
-  const s = readJSON(SETTINGS_FILE, {});
+  const s = readJSONStrict(SETTINGS_FILE, {});
   if (!s.rootDir) { const err = new Error('ROOT_NOT_SET'); throw err; }
   return s.rootDir;
+}
+// Un nom de dossier reçu dans une URL (cours, étudiant) doit être un simple nom : jamais de
+// séparateur ni de « .. », sinon une requête pourrait lire, écrire ou SUPPRIMER hors du répertoire racine.
+function isSafeSegment(name) {
+  if (typeof name !== 'string' || !name.length || name.length > 200) return false;
+  if (/[\\/\0]/.test(name)) return false;        // aucun séparateur de chemin
+  if (/^[.\s]*$/.test(name)) return false;        // ni vide, ni « . », ni « .. », ni espaces seuls
+  return true;
+}
+function invalidPath() { return new Error('INVALID_PATH'); }
+// Vérification finale : le chemin résolu doit rester à l'intérieur du répertoire racine.
+function insideRoot(root, target) {
+  const r = path.resolve(root), t = path.resolve(target);
+  return t !== r && t.startsWith(r + path.sep);
+}
+// Réponse d'erreur commune à toutes les routes.
+function fail(res, e) {
+  if (e && e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
+  if (e && e.message === 'INVALID_PATH') return res.status(400).json({ error: 'INVALID_PATH' });
+  if (e && e.message === 'CORRUPT_FILE') return res.status(500).json({ error: 'CORRUPT_FILE', file: e.file || '' });
+  res.status(500).json({ error: (e && e.message) || 'ERROR' });
 }
 function sanitize(str) {
   return String(str || '').replace(/[\\/:*?"<>|]/g, '').trim();
@@ -128,9 +200,13 @@ function getSessions(course) {
   return sessions;
 }
 
+// Tout identifiant de cours / dossier d'étudiant présent dans une URL est validé ici, une fois pour toutes.
+app.param('id', (req, res, next, value) => isSafeSegment(value) ? next() : res.status(400).json({ error: 'INVALID_PATH' }));
+app.param('folder', (req, res, next, value) => isSafeSegment(value) ? next() : res.status(400).json({ error: 'INVALID_PATH' }));
+
 // ---------- Settings ----------
-app.get('/api/settings', (req, res) => res.json(readJSON(SETTINGS_FILE, {})));
-app.put('/api/settings', (req, res) => { writeJSON(SETTINGS_FILE, req.body); res.json({ ok: true }); });
+app.get('/api/settings', (req, res) => { try { res.json(readJSONStrict(SETTINGS_FILE, {})); } catch (e) { fail(res, e); } });
+app.put('/api/settings', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(SETTINGS_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 app.post('/api/settings/check-dir', (req, res) => {
   const dir = req.body.dir || '';
   res.json({ exists: dir ? fs.existsSync(dir) : false });
@@ -141,32 +217,32 @@ app.post('/api/settings/create-dir', (req, res) => {
 });
 
 // ---------- Course types (modèles de cours) ----------
-app.get('/api/course-types', (req, res) => res.json(readJSON(TYPES_FILE, [])));
-app.put('/api/course-types', (req, res) => { writeJSON(TYPES_FILE, req.body); res.json({ ok: true }); });
+app.get('/api/course-types', (req, res) => { try { res.json(readJSONStrict(TYPES_FILE, [])); } catch (e) { fail(res, e); } });
+app.put('/api/course-types', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(TYPES_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Sites ----------
-app.get('/api/sites', (req, res) => res.json(readJSON(SITES_FILE, [])));
-app.put('/api/sites', (req, res) => { writeJSON(SITES_FILE, req.body); res.json({ ok: true }); });
+app.get('/api/sites', (req, res) => { try { res.json(readJSONStrict(SITES_FILE, [])); } catch (e) { fail(res, e); } });
+app.put('/api/sites', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(SITES_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Champs du profil étudiant (modèle personnalisable) ----------
-app.get('/api/student-fields', (req, res) => res.json(readJSON(STUDENT_FIELDS_FILE, [])));
-app.put('/api/student-fields', (req, res) => { writeJSON(STUDENT_FIELDS_FILE, req.body); res.json({ ok: true }); });
+app.get('/api/student-fields', (req, res) => { try { res.json(readJSONStrict(STUDENT_FIELDS_FILE, [])); } catch (e) { fail(res, e); } });
+app.put('/api/student-fields', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(STUDENT_FIELDS_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Bibliothèque de modèles d'email ----------
-app.get('/api/email-templates', (req, res) => res.json(readJSON(EMAIL_TEMPLATES_FILE, [])));
-app.put('/api/email-templates', (req, res) => { writeJSON(EMAIL_TEMPLATES_FILE, req.body); res.json({ ok: true }); });
+app.get('/api/email-templates', (req, res) => { try { res.json(readJSONStrict(EMAIL_TEMPLATES_FILE, [])); } catch (e) { fail(res, e); } });
+app.put('/api/email-templates', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(EMAIL_TEMPLATES_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Liste globale de coéquipiers (Divemaster, autres instructeurs...) ----------
-app.get('/api/buddies', (req, res) => res.json(readJSON(BUDDIES_FILE, [])));
-app.put('/api/buddies', (req, res) => { writeJSON(BUDDIES_FILE, req.body); res.json({ ok: true }); });
+app.get('/api/buddies', (req, res) => { try { res.json(readJSONStrict(BUDDIES_FILE, [])); } catch (e) { fail(res, e); } });
+app.put('/api/buddies', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(BUDDIES_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Centres partenaires (qui mandatent l'instructeur) ----------
-app.get('/api/centers', (req, res) => res.json(readJSON(CENTERS_FILE, [])));
-app.put('/api/centers', (req, res) => { writeJSON(CENTERS_FILE, req.body); res.json({ ok: true }); });
+app.get('/api/centers', (req, res) => { try { res.json(readJSONStrict(CENTERS_FILE, [])); } catch (e) { fail(res, e); } });
+app.put('/api/centers', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(CENTERS_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Modèle de facturation (prix de base + offset par étudiant additionnel) ----------
-app.get('/api/billing', (req, res) => res.json(readJSON(BILLING_FILE, { currency: 'CAD', default: { basePrice: 0, minStudents: 1, extraStudentPrice: 0 }, byType: {} })));
-app.put('/api/billing', (req, res) => { writeJSON(BILLING_FILE, req.body); res.json({ ok: true }); });
+app.get('/api/billing', (req, res) => { try { res.json(readJSONStrict(BILLING_FILE, { currency: 'CAD', default: { basePrice: 0, minStudents: 1, extraStudentPrice: 0 }, byType: {} })); } catch (e) { fail(res, e); } });
+app.put('/api/billing', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(BILLING_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Étampe (image pour les factures, stockée en data URL) ----------
 const STAMP_FILE = path.join(DATA_DIR, 'stamp.json');
@@ -182,11 +258,11 @@ function computeCourseStats(root, courseId, course) {
   const cFolder = path.join(root, courseId);
   const types = readJSON(TYPES_FILE, []);
   const type = types.find(t => t.code === course.typeCode) || {};
-  let totalPre = 0, donePre = 0, totalPost = 0, donePost = 0;
+  let totalPre = 0, donePre = 0, totalPost = 0, donePost = 0, corruptedStudents = 0;
   const students = [];
   for (const sName of (course.students || [])) {
     const sData = readJSON(path.join(cFolder, sName, 'student.json'), null);
-    if (!sData) continue;
+    if (!sData) { if (fs.existsSync(path.join(cFolder, sName, 'student.json'))) corruptedStudents++; continue; }
     const preC = countDocGroup(sData.preDocs, type.preDocs);
     const postC = countDocGroup(sData.postDocs, type.postDocs);
     totalPre += preC.total; donePre += preC.done;
@@ -206,6 +282,7 @@ function computeCourseStats(root, courseId, course) {
     prePercent: totalPre ? Math.round(100 * donePre / totalPre) : 100,
     postPercent: totalPost ? Math.round(100 * donePost / totalPost) : 100,
     studentCount: students.length,
+    corruptedStudents,
     students
   };
 }
@@ -221,7 +298,12 @@ app.get('/api/courses', (req, res) => {
       const cJsonPath = path.join(root, d.name, 'course.json');
       if (!fs.existsSync(cJsonPath)) continue;
       const course = readJSON(cJsonPath, null);
-      if (!course) continue;
+      if (!course || typeof course !== 'object' || Array.isArray(course)) {
+        // Fichier illisible : on montre quand même le cours (avec une alerte) au lieu de le faire disparaître.
+        courses.push({ id: d.name, corrupted: true, typeCode: '', centerId: '', students: [], sessions: [],
+          generalPreDocs: {}, generalPostDocs: {}, stats: { prePercent: 0, postPercent: 0, studentCount: 0, students: [] } });
+        continue;
+      }
       const sessions = getSessions(course).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
       courses.push({
         id: d.name, ...course, sessions,
@@ -232,8 +314,7 @@ app.get('/api/courses', (req, res) => {
     courses.sort((a, b) => ((a.sessions[0] && a.sessions[0].date) || '').localeCompare((b.sessions[0] && b.sessions[0].date) || ''));
     res.json(courses);
   } catch (e) {
-    if (e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
-    res.status(500).json({ error: e.message });
+    fail(res, e);
   }
 });
 
@@ -243,11 +324,18 @@ app.get('/api/courses/:id', (req, res) => {
     const cFolder = path.join(root, req.params.id);
     const cJsonPath = path.join(cFolder, 'course.json');
     if (!fs.existsSync(cJsonPath)) return res.status(404).json({ error: 'NOT_FOUND' });
-    const course = readJSON(cJsonPath, {});
+    const course = readJSONStrict(cJsonPath, {});
     const students = (course.students || []).map(sName => {
-      const sData = readJSON(path.join(cFolder, sName, 'student.json'), {});
+      const sFile = path.join(cFolder, sName, 'student.json');
+      let sData;
+      try { sData = readJSONStrict(sFile, {}); }
+      catch (e) {
+        // Fiche illisible : on l'affiche avec une alerte (nom déduit du dossier) ; toute modification sera refusée.
+        const parts = sName.split(' ');
+        sData = { corrupted: true, firstName: parts[0] || sName, lastName: parts.slice(1).join(' '), preDocs: {}, postDocs: {} };
+      }
       let files = [];
-      try { files = fs.readdirSync(path.join(cFolder, sName)).filter(f => f !== 'student.json'); } catch (e) {}
+      try { files = fs.readdirSync(path.join(cFolder, sName)).filter(f => f !== 'student.json' && !f.endsWith('.tmp')); } catch (e) {}
       return { folder: sName, ...sData, files };
     });
     const sessions = getSessions(course).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
@@ -256,7 +344,7 @@ app.get('/api/courses/:id', (req, res) => {
     let files = [];
     try {
       files = fs.readdirSync(cFolder, { withFileTypes: true })
-        .filter(d => d.isFile() && d.name !== 'course.json')
+        .filter(d => d.isFile() && d.name !== 'course.json' && !d.name.endsWith('.tmp'))
         .map(d => d.name);
     } catch (e) {}
     let photos = [];
@@ -270,8 +358,7 @@ app.get('/api/courses/:id', (req, res) => {
       folderPath: cFolder
     });
   } catch (e) {
-    if (e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
-    res.status(500).json({ error: e.message });
+    fail(res, e);
   }
 });
 
@@ -305,8 +392,7 @@ app.post('/api/courses', (req, res) => {
     writeJSON(path.join(cFolder, 'course.json'), course);
     res.json({ id, ...course });
   } catch (e) {
-    if (e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
-    res.status(500).json({ error: e.message });
+    fail(res, e);
   }
 });
 
@@ -315,19 +401,25 @@ app.put('/api/courses/:id', (req, res) => {
     const root = getRoot();
     const p = path.join(root, req.params.id, 'course.json');
     if (!fs.existsSync(p)) return res.status(404).json({ error: 'NOT_FOUND' });
-    const updated = { ...readJSON(p, {}), ...req.body };
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ error: 'INVALID_DATA' });
+    const updated = { ...readJSONStrict(p, {}), ...req.body };
     writeJSON(p, updated);
     res.json({ id: req.params.id, ...updated });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { fail(res, e); }
 });
 
 app.delete('/api/courses/:id', (req, res) => {
   try {
     const root = getRoot();
     const cFolder = path.join(root, req.params.id);
-    if (fs.existsSync(cFolder)) fs.rmSync(cFolder, { recursive: true, force: true });
+    if (!insideRoot(root, cFolder)) throw invalidPath();
+    // On ne supprime qu'un vrai dossier de cours (qui contient course.json), jamais un dossier quelconque.
+    if (fs.existsSync(cFolder)) {
+      if (!fs.existsSync(path.join(cFolder, 'course.json'))) return res.status(400).json({ error: 'NOT_A_COURSE' });
+      fs.rmSync(cFolder, { recursive: true, force: true });
+    }
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { fail(res, e); }
 });
 
 // ---------- Students within a course ----------
@@ -337,7 +429,7 @@ app.post('/api/courses/:id/students', (req, res) => {
     const cFolder = path.join(root, req.params.id);
     const cJsonPath = path.join(cFolder, 'course.json');
     if (!fs.existsSync(cJsonPath)) return res.status(404).json({ error: 'NOT_FOUND' });
-    const course = readJSON(cJsonPath, {});
+    const course = readJSONStrict(cJsonPath, {});
     const types = readJSON(TYPES_FILE, []);
     const type = types.find(t => t.code === course.typeCode) || { preDocs: [], postDocs: [] };
     const b = req.body || {};
@@ -357,8 +449,7 @@ app.post('/api/courses/:id/students', (req, res) => {
     writeJSON(cJsonPath, course);
     res.json({ folder: folderName, ...student });
   } catch (e) {
-    if (e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
-    res.status(500).json({ error: e.message });
+    fail(res, e);
   }
 });
 
@@ -369,7 +460,7 @@ app.post('/api/courses/:id/students/bulk', (req, res) => {
     const cFolder = path.join(root, req.params.id);
     const cJsonPath = path.join(cFolder, 'course.json');
     if (!fs.existsSync(cJsonPath)) return res.status(404).json({ error: 'NOT_FOUND' });
-    const course = readJSON(cJsonPath, {});
+    const course = readJSONStrict(cJsonPath, {});
     const types = readJSON(TYPES_FILE, []);
     const type = types.find(t => t.code === course.typeCode) || { preDocs: [], postDocs: [] };
     const list = Array.isArray(req.body.students) ? req.body.students : [];
@@ -391,8 +482,7 @@ app.post('/api/courses/:id/students/bulk', (req, res) => {
     writeJSON(cJsonPath, course);
     res.json({ created, skipped });
   } catch (e) {
-    if (e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
-    res.status(500).json({ error: e.message });
+    fail(res, e);
   }
 });
 
@@ -401,10 +491,12 @@ app.put('/api/courses/:id/students/:folder', (req, res) => {
     const root = getRoot();
     const p = path.join(root, req.params.id, req.params.folder, 'student.json');
     if (!fs.existsSync(p)) return res.status(404).json({ error: 'NOT_FOUND' });
-    const updated = { ...readJSON(p, {}), ...req.body };
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ error: 'INVALID_DATA' });
+    const { corrupted, files, folder, ...patch } = req.body; // champs calculés par le serveur : jamais enregistrés
+    const updated = { ...readJSONStrict(p, {}), ...patch };
     writeJSON(p, updated);
     res.json({ folder: req.params.folder, ...updated });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { fail(res, e); }
 });
 
 app.delete('/api/courses/:id/students/:folder', (req, res) => {
@@ -412,13 +504,21 @@ app.delete('/api/courses/:id/students/:folder', (req, res) => {
     const root = getRoot();
     const cFolder = path.join(root, req.params.id);
     const sFolder = path.join(cFolder, req.params.folder);
-    if (fs.existsSync(sFolder)) fs.rmSync(sFolder, { recursive: true, force: true });
+    if (!insideRoot(root, cFolder) || !insideRoot(cFolder, sFolder)) throw invalidPath();
     const cJsonPath = path.join(cFolder, 'course.json');
-    const course = readJSON(cJsonPath, {});
+    if (!fs.existsSync(cJsonPath)) return res.status(404).json({ error: 'NOT_FOUND' });
+    // On lit course.json AVANT de supprimer : s'il est illisible, on ne touche à rien.
+    const course = readJSONStrict(cJsonPath, {});
+    if (fs.existsSync(sFolder)) {
+      // Seul un dossier inscrit au cours (ou contenant une fiche) peut être supprimé — pas « Photo », par exemple.
+      const known = (course.students || []).includes(req.params.folder) || fs.existsSync(path.join(sFolder, 'student.json'));
+      if (!known) return res.status(400).json({ error: 'NOT_A_STUDENT' });
+      fs.rmSync(sFolder, { recursive: true, force: true });
+    }
     course.students = (course.students || []).filter(s => s !== req.params.folder);
     writeJSON(cJsonPath, course);
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { fail(res, e); }
 });
 
 // ---------- Global students (recherche pour copier les infos) ----------
@@ -446,8 +546,7 @@ app.get('/api/global-students', (req, res) => {
     }
     res.json(results);
   } catch (e) {
-    if (e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
-    res.status(500).json({ error: e.message });
+    fail(res, e);
   }
 });
 
@@ -476,8 +575,7 @@ app.post('/api/courses/:id/upload', (req, res) => {
     fs.writeFileSync(path.join(cFolder, finalName), Buffer.from(dataBase64, 'base64'));
     res.json({ ok: true, filename: finalName });
   } catch (e) {
-    if (e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
-    res.status(500).json({ error: e.message });
+    fail(res, e);
   }
 });
 
@@ -494,8 +592,7 @@ app.post('/api/courses/:id/photos/upload', (req, res) => {
     fs.writeFileSync(path.join(photoDir, finalName), Buffer.from(dataBase64, 'base64'));
     res.json({ ok: true, filename: finalName });
   } catch (e) {
-    if (e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
-    res.status(500).json({ error: e.message });
+    fail(res, e);
   }
 });
 
@@ -511,8 +608,7 @@ app.post('/api/courses/:id/students/:folder/upload', (req, res) => {
     fs.writeFileSync(path.join(sFolder, finalName), Buffer.from(dataBase64, 'base64'));
     res.json({ ok: true, filename: finalName });
   } catch (e) {
-    if (e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
-    res.status(500).json({ error: e.message });
+    fail(res, e);
   }
 });
 
@@ -520,15 +616,20 @@ app.post('/api/courses/:id/students/:folder/upload', (req, res) => {
 app.post('/api/open-explorer', (req, res) => {
   try {
     const root = getRoot();
-    let target = path.join(root, req.body.courseId || '');
-    if (req.body.studentFolder) target = path.join(target, req.body.studentFolder);
-    if (req.body.sub) target = path.join(target, req.body.sub);
+    const b = req.body || {};
+    let target = root;
+    for (const seg of [b.courseId, b.studentFolder, b.sub]) {
+      if (seg === undefined || seg === null || seg === '') continue;
+      if (!isSafeSegment(seg)) throw invalidPath();
+      target = path.join(target, seg);
+    }
+    if (path.resolve(target) !== path.resolve(root) && !insideRoot(root, target)) throw invalidPath();
     if (!fs.existsSync(target)) return res.status(404).json({ error: 'PATH_NOT_FOUND', target });
-    exec(`start "" "${target}"`, { shell: 'cmd.exe' }, () => {});
+    // execFile (sans interpréteur de commandes) : le nom du dossier ne peut pas être interprété comme une commande.
+    execFile('explorer.exe', [path.resolve(target)], () => {});
     res.json({ ok: true, target });
   } catch (e) {
-    if (e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
-    res.status(500).json({ error: e.message });
+    fail(res, e);
   }
 });
 
@@ -537,6 +638,7 @@ app.post('/api/open-explorer', (req, res) => {
 // pour éviter d'avoir besoin d'accès internet lors de l'installation. Le zip est créé dans un
 // dossier temporaire puis envoyé en téléchargement au navigateur, qui laisse l'instructeur
 // choisir où l'enregistrer (clé USB, cloud, autre disque...).
+const BACKUP_SETTINGS_DIRNAME = '_ScubaPilot-parametres';
 function backupFileName() {
   const d = new Date();
   const pad = n => String(n).padStart(2, '0');
@@ -556,12 +658,36 @@ app.post('/api/backup', (req, res) => {
   const zipPath = path.join(os.tmpdir(), filename);
   try { fs.unlinkSync(zipPath); } catch (e) {}
 
+  // Les réglages (centres, tarifs, modèles d'email, types de cours, étampe...) vivent dans le dossier
+  // data/ de l'application, hors du répertoire racine : on en met une copie dans le zip, dans un
+  // dossier à part, pour qu'une sauvegarde suffise à tout reconstruire.
+  const stageRoot = path.join(os.tmpdir(), `scubapilot-backup-${process.pid}-${Date.now()}`);
+  const stageDir = path.join(stageRoot, BACKUP_SETTINGS_DIRNAME);
+  let settingsIncluded = false;
+  try {
+    fs.mkdirSync(stageDir, { recursive: true });
+    for (const f of fs.readdirSync(DATA_DIR)) {
+      if (!f.toLowerCase().endsWith('.json')) continue;
+      fs.copyFileSync(path.join(DATA_DIR, f), path.join(stageDir, f));
+      settingsIncluded = true;
+    }
+    fs.writeFileSync(path.join(stageDir, 'LISEZ-MOI.txt'),
+      'Copie des réglages de ScubaPilot (centres, tarifs, modèles d\'email, types de cours, sites, étampe...).\r\n' +
+      'Pour les restaurer : fermez ScubaPilot, puis copiez les fichiers .json de ce dossier dans le dossier\r\n' +
+      '"data" de l\'application (remplacez les fichiers existants), et relancez ScubaPilot.\r\n' +
+      'Ce dossier ne fait pas partie de vos cours : inutile de le recopier dans le répertoire racine.\r\n', 'utf8');
+  } catch (e) { settingsIncluded = false; }
+  const cleanupStage = () => { try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch (e) {} };
+
   const escapeForPs = s => s.replace(/'/g, "''");
-  const psCommand = `Compress-Archive -Path '${escapeForPs(root)}\\*' -DestinationPath '${escapeForPs(zipPath)}' -Force -CompressionLevel Optimal`;
+  const psPaths = [`'${escapeForPs(root)}\\*'`];
+  if (settingsIncluded) psPaths.push(`'${escapeForPs(stageDir)}'`);
+  const psCommand = `Compress-Archive -Path ${psPaths.join(',')} -DestinationPath '${escapeForPs(zipPath)}' -Force -CompressionLevel Optimal`;
 
   execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCommand],
     { maxBuffer: 1024 * 1024 * 20, timeout: 10 * 60 * 1000 },
     (err, stdout, stderr) => {
+      cleanupStage();
       if (err) {
         return res.status(500).json({ error: 'BACKUP_FAILED', details: (stderr || err.message || '').toString().slice(0, 2000) });
       }
@@ -576,10 +702,15 @@ app.post('/api/backup', (req, res) => {
 
 app.get('/api/utils/format-date', (req, res) => res.json({ human: fmtDateHuman(req.query.d) }));
 
-const PORT = 4531;
-app.listen(PORT, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log('=================================================');
   console.log('  ScubaPilot');
   console.log(`  Ouvrez votre navigateur sur : http://localhost:${PORT}`);
+  if (!LOCAL_ONLY) console.log(`  ATTENTION : accessible depuis le réseau (${HOST}), sans mot de passe.`);
   console.log('=================================================');
+});
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') console.error(`[${new Date().toISOString()}] Le port ${PORT} est déjà utilisé : une autre copie de ScubaPilot tourne déjà. Lancez "Arreter.bat" puis redémarrez.`);
+  else console.error(e);
+  process.exit(1);
 });
