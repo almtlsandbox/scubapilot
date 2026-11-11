@@ -23,15 +23,27 @@ app.use(express.json({ limit: '25mb' }));
 // (public/app.js) soit visible tout de suite sans devoir vider le cache.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: res => res.setHeader('Cache-Control', 'no-cache') }));
 
+// ---------------------------------------------------------------------------------------------
+// Où vivent les données ?
+//  - Les COURS            : dans le répertoire racine choisi par l'utilisateur (souvent sous OneDrive).
+//  - Les RÉGLAGES partagés : dans <racine>/_ScubaPilot/ (centres, tarifs, modèles d'email, types de
+//    cours, sites, étampe, coordonnées de l'instructeur). Ils suivent donc les cours : synchronisés,
+//    sauvegardés avec eux, et jamais écrasés par une mise à jour de l'application.
+//  - Le CHEMIN de la racine : propre à cet ordinateur, dans le profil de l'utilisateur
+//    (%APPDATA%\ScubaPilot\local.json), hors du dossier de l'application. Remplacer le dossier
+//    de l'application lors d'une mise à jour ne fait donc plus rien perdre.
+//  - data/ (dans l'application) : valeurs par défaut livrées avec l'application + anciens réglages
+//    d'avant la version 1.8, recopiés une seule fois vers <racine>/_ScubaPilot/.
+// ---------------------------------------------------------------------------------------------
 const DATA_DIR = path.join(__dirname, 'data');
-const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
-const TYPES_FILE = path.join(DATA_DIR, 'course_types.json');
-const SITES_FILE = path.join(DATA_DIR, 'sites.json');
-const STUDENT_FIELDS_FILE = path.join(DATA_DIR, 'student_fields.json');
-const EMAIL_TEMPLATES_FILE = path.join(DATA_DIR, 'email_templates.json');
-const BUDDIES_FILE = path.join(DATA_DIR, 'buddies.json');
-const CENTERS_FILE = path.join(DATA_DIR, 'centers.json');
-const BILLING_FILE = path.join(DATA_DIR, 'billing.json');
+const CONFIG_DIRNAME = '_ScubaPilot';
+const TRASH_DIRNAME = '_Corbeille';
+const CONFIG_FILES = ['settings.json', 'course_types.json', 'sites.json', 'student_fields.json',
+  'email_templates.json', 'buddies.json', 'centers.json', 'billing.json', 'stamp.json'];
+const LOCAL_DIR = process.env.SCUBAPILOT_LOCAL_DIR ||
+  (process.env.APPDATA ? path.join(process.env.APPDATA, 'ScubaPilot') : path.join(os.homedir(), '.scubapilot'));
+const LOCAL_FILE = path.join(LOCAL_DIR, 'local.json');
+const LEGACY_SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 
 function parseJSONText(txt) {
   // Un fichier retouché dans le Bloc-notes peut commencer par un BOM : on l'ignore.
@@ -78,11 +90,67 @@ function writeJSON(file, data) {
     fs.writeFileSync(file, txt, 'utf8');
   }
 }
-function getRoot() {
-  const s = readJSONStrict(SETTINGS_FILE, {});
-  if (!s.rootDir) { const err = new Error('ROOT_NOT_SET'); throw err; }
-  return s.rootDir;
+// Chemin de la racine pour cet ordinateur (ou '' s'il n'est pas encore choisi).
+function getRootOrEmpty() {
+  const local = readJSON(LOCAL_FILE, null);
+  if (local && typeof local.rootDir === 'string') return local.rootDir;
+  // Avant la version 1.8, le chemin était dans data/settings.json : on le reprend une fois.
+  const legacy = readJSON(LEGACY_SETTINGS_FILE, {});
+  const rootDir = (legacy && typeof legacy.rootDir === 'string') ? legacy.rootDir : '';
+  if (rootDir) setLocalRoot(rootDir);
+  return rootDir;
 }
+function setLocalRoot(rootDir) {
+  fs.mkdirSync(LOCAL_DIR, { recursive: true });
+  writeJSON(LOCAL_FILE, { rootDir: rootDir || '' });
+}
+function getRoot() {
+  const root = getRootOrEmpty();
+  if (!root) throw new Error('ROOT_NOT_SET');
+  if (!fs.existsSync(root)) { const err = new Error('ROOT_NOT_FOUND'); err.rootDir = root; throw err; }
+  return root;
+}
+function stripRoot(settings) {
+  const { rootDir, ...rest } = (settings && typeof settings === 'object' && !Array.isArray(settings)) ? settings : {};
+  return rest;
+}
+// Prépare <racine>/_ScubaPilot/ : crée le dossier et y recopie, UNE SEULE FOIS par fichier, les
+// réglages qui n'y sont pas encore (depuis `seedDir` : l'ancien dossier data/, ou les réglages de
+// la racine précédente quand on change de racine). Un fichier déjà présent n'est jamais écrasé.
+const preparedConfigDirs = new Set();
+function ensureConfigDir(root, seedDir) {
+  const dir = path.join(root, CONFIG_DIRNAME);
+  if (preparedConfigDirs.has(dir) && fs.existsSync(dir)) return dir;
+  fs.mkdirSync(dir, { recursive: true });
+  const from = seedDir || DATA_DIR;
+  for (const f of CONFIG_FILES) {
+    const dest = path.join(dir, f), src = path.join(from, f);
+    if (fs.existsSync(dest) || !fs.existsSync(src) || path.resolve(src) === path.resolve(dest)) continue;
+    if (f === 'settings.json') { try { writeJSON(dest, stripRoot(readJSONStrict(src, {}))); } catch (e) { fs.copyFileSync(src, dest); } }
+    else fs.copyFileSync(src, dest);
+  }
+  migrateEmailTemplates(dir);
+  const readme = path.join(dir, 'LISEZ-MOI.txt');
+  if (!fs.existsSync(readme)) {
+    try {
+      fs.writeFileSync(readme,
+        'Réglages de ScubaPilot (centres, tarifs, modèles d\'email, types de cours, sites, étampe, coordonnées).\r\n' +
+        'Ce dossier est géré par l\'application : ne le supprimez pas et ne le renommez pas.\r\n' +
+        'Il est inclus dans la sauvegarde .zip. Pour restaurer des réglages, remplacez les fichiers .json\r\n' +
+        'de ce dossier pendant que ScubaPilot est fermé (ou utilisez Paramètres > Emplacements > Importer).\r\n', 'utf8');
+    } catch (e) {}
+  }
+  preparedConfigDirs.add(dir);
+  return dir;
+}
+// Dossier des réglages en vigueur : <racine>/_ScubaPilot/, ou data/ tant qu'aucune racine n'est choisie.
+function configDir() {
+  const root = getRootOrEmpty();
+  if (!root) return DATA_DIR;
+  if (!fs.existsSync(root)) { const err = new Error('ROOT_NOT_FOUND'); err.rootDir = root; throw err; }
+  return ensureConfigDir(root);
+}
+function cfg(name) { return path.join(configDir(), name); }
 // Un nom de dossier reçu dans une URL (cours, étudiant) doit être un simple nom : jamais de
 // séparateur ni de « .. », sinon une requête pourrait lire, écrire ou SUPPRIMER hors du répertoire racine.
 function isSafeSegment(name) {
@@ -92,6 +160,8 @@ function isSafeSegment(name) {
   return true;
 }
 function invalidPath() { return new Error('INVALID_PATH'); }
+// Dossiers de la racine réservés à l'application : jamais traités comme des cours.
+function isReservedDir(name) { return name === CONFIG_DIRNAME || name === TRASH_DIRNAME; }
 // Vérification finale : le chemin résolu doit rester à l'intérieur du répertoire racine.
 function insideRoot(root, target) {
   const r = path.resolve(root), t = path.resolve(target);
@@ -100,6 +170,7 @@ function insideRoot(root, target) {
 // Réponse d'erreur commune à toutes les routes.
 function fail(res, e) {
   if (e && e.message === 'ROOT_NOT_SET') return res.status(400).json({ error: 'ROOT_NOT_SET' });
+  if (e && e.message === 'ROOT_NOT_FOUND') return res.status(400).json({ error: 'ROOT_NOT_FOUND', rootDir: e.rootDir || '' });
   if (e && e.message === 'INVALID_PATH') return res.status(400).json({ error: 'INVALID_PATH' });
   if (e && e.message === 'CORRUPT_FILE') return res.status(500).json({ error: 'CORRUPT_FILE', file: e.file || '' });
   res.status(500).json({ error: (e && e.message) || 'ERROR' });
@@ -121,8 +192,10 @@ function ensurePhotoDir(cFolder) {
 // Migration ponctuelle : l'ancienne version stockait 2 modèles fixes (convocation/rappel) dans
 // settings.json. On les convertit en bibliothèque de modèles (email_templates.json) la première
 // fois que le fichier n'existe pas encore, pour ne pas perdre les modèles déjà personnalisés.
-if (!fs.existsSync(EMAIL_TEMPLATES_FILE)) {
-  const oldSettings = readJSON(SETTINGS_FILE, {});
+function migrateEmailTemplates(dir) {
+  const file = path.join(dir, 'email_templates.json');
+  if (fs.existsSync(file)) return;
+  const oldSettings = readJSON(path.join(dir, 'settings.json'), {});
   const migrated = [];
   if (oldSettings.emailTemplates && oldSettings.emailTemplates.convocation) {
     migrated.push({ id: 'convocation-standard', name: 'Convocation - standard', ...oldSettings.emailTemplates.convocation });
@@ -136,7 +209,7 @@ if (!fs.existsSync(EMAIL_TEMPLATES_FILE)) {
       { id: 'rappel-standard', name: 'Rappel - standard', subject: 'Rappel - {type_cours}', body: "Bonjour {prenom},\n\nPetit rappel concernant votre cours \"{type_cours}\".\n\nSéance(s) prévue(s) :\n{liste_dates_lieux}\n\nIl me manque encore les documents suivants :\n{liste_docs_manquants}\n\nMerci de me les transmettre avant le début du cours.\n\nÀ bientôt,\n{instructeur}" }
     );
   }
-  writeJSON(EMAIL_TEMPLATES_FILE, migrated);
+  writeJSON(file, migrated);
 }
 
 // Un document a l'un de ces 3 statuts (défini dans le modèle de cours) :
@@ -201,12 +274,178 @@ function getSessions(course) {
 }
 
 // Tout identifiant de cours / dossier d'étudiant présent dans une URL est validé ici, une fois pour toutes.
-app.param('id', (req, res, next, value) => isSafeSegment(value) ? next() : res.status(400).json({ error: 'INVALID_PATH' }));
+app.param('id', (req, res, next, value) => (isSafeSegment(value) && !isReservedDir(value)) ? next() : res.status(400).json({ error: 'INVALID_PATH' }));
 app.param('folder', (req, res, next, value) => isSafeSegment(value) ? next() : res.status(400).json({ error: 'INVALID_PATH' }));
+app.param('tid', (req, res, next, value) => isSafeSegment(value) ? next() : res.status(400).json({ error: 'INVALID_PATH' }));
+
+// ---------- Corbeille ----------
+// Supprimer un cours ou un étudiant le DÉPLACE dans <racine>/_Corbeille/<horodatage>/ au lieu de
+// l'effacer. Chaque entrée contient info.json (ce que c'était, d'où ça vient, quand) et le dossier
+// d'origine, intact. On peut restaurer, supprimer définitivement, ou vider la corbeille.
+function moveDir(src, dest) {
+  for (let attempt = 0; ; attempt++) {
+    try { fs.renameSync(src, dest); return; }
+    catch (e) {
+      if (['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY'].includes(e.code) && attempt < 4) { sleepMs(120 * (attempt + 1)); continue; }
+      if (!['EPERM', 'EBUSY', 'EACCES', 'EXDEV'].includes(e.code)) throw e;
+      break; // dernier recours ci-dessous : copier puis effacer la source
+    }
+  }
+  try { fs.cpSync(src, dest, { recursive: true, errorOnExist: true, force: false }); }
+  catch (e) { try { fs.rmSync(dest, { recursive: true, force: true }); } catch (e2) {} throw e; } // copie incomplète : on la retire, la source est intacte
+  fs.rmSync(src, { recursive: true, force: true });
+}
+function trashStamp() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}-${Math.random().toString(36).slice(2, 6)}`;
+}
+function moveToTrash(root, srcPath, info) {
+  const entry = path.join(root, TRASH_DIRNAME, trashStamp());
+  fs.mkdirSync(entry, { recursive: true });
+  const name = path.basename(srcPath);
+  // info.json est écrit AVANT le déplacement : une entrée de corbeille est toujours identifiable.
+  writeJSON(path.join(entry, 'info.json'), { ...info, name, deletedAt: new Date().toISOString() });
+  try { moveDir(srcPath, path.join(entry, name)); }
+  catch (e) {
+    if (!fs.existsSync(path.join(entry, name))) { try { fs.rmSync(entry, { recursive: true, force: true }); } catch (e2) {} }
+    throw e;
+  }
+  return path.basename(entry);
+}
+function listTrash(root) {
+  const dir = path.join(root, TRASH_DIRNAME);
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }).filter(d => d.isDirectory()); } catch (e) { return []; }
+  return entries.map(d => {
+    const info = readJSON(path.join(dir, d.name, 'info.json'), null) || {};
+    const present = !!info.name && fs.existsSync(path.join(dir, d.name, info.name));
+    return { tid: d.name, kind: info.kind || 'unknown', name: info.name || d.name, courseId: info.courseId || '',
+      studentFolder: info.studentFolder || '', deletedAt: info.deletedAt || '', restorable: present && (info.kind === 'course' || info.kind === 'student') };
+  }).sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || ''));
+}
+app.get('/api/trash', (req, res) => { try { res.json(listTrash(getRoot())); } catch (e) { fail(res, e); } });
+app.post('/api/trash/:tid/restore', (req, res) => {
+  try {
+    const root = getRoot();
+    const entry = path.join(root, TRASH_DIRNAME, req.params.tid);
+    if (!insideRoot(path.join(root, TRASH_DIRNAME), entry) || !fs.existsSync(entry)) return res.status(404).json({ error: 'NOT_FOUND' });
+    const info = readJSONStrict(path.join(entry, 'info.json'), null);
+    if (!info || !isSafeSegment(info.name) || !fs.existsSync(path.join(entry, info.name))) return res.status(400).json({ error: 'TRASH_ENTRY_INVALID' });
+    const src = path.join(entry, info.name);
+    if (info.kind === 'course') {
+      const dest = path.join(root, info.name);
+      if (isReservedDir(info.name) || !insideRoot(root, dest)) throw invalidPath();
+      if (fs.existsSync(dest)) return res.status(409).json({ error: 'COURSE_EXISTS', id: info.name });
+      moveDir(src, dest);
+    } else if (info.kind === 'student') {
+      if (!isSafeSegment(info.courseId) || isReservedDir(info.courseId)) throw invalidPath();
+      const cFolder = path.join(root, info.courseId);
+      const cJsonPath = path.join(cFolder, 'course.json');
+      if (!fs.existsSync(cJsonPath)) return res.status(409).json({ error: 'COURSE_NOT_FOUND', id: info.courseId });
+      const course = readJSONStrict(cJsonPath, {});
+      const dest = path.join(cFolder, info.name);
+      if (fs.existsSync(dest)) return res.status(409).json({ error: 'STUDENT_EXISTS' });
+      moveDir(src, dest);
+      course.students = course.students || [];
+      if (!course.students.includes(info.name)) { course.students.push(info.name); writeJSON(cJsonPath, course); }
+    } else return res.status(400).json({ error: 'TRASH_ENTRY_INVALID' });
+    fs.rmSync(entry, { recursive: true, force: true });
+    res.json({ ok: true, kind: info.kind, courseId: info.kind === 'course' ? info.name : info.courseId });
+  } catch (e) { fail(res, e); }
+});
+app.delete('/api/trash/:tid', (req, res) => {
+  try {
+    const root = getRoot();
+    const tdir = path.join(root, TRASH_DIRNAME), entry = path.join(tdir, req.params.tid);
+    if (!insideRoot(tdir, entry)) throw invalidPath();
+    if (fs.existsSync(entry)) fs.rmSync(entry, { recursive: true, force: true });
+    res.json({ ok: true });
+  } catch (e) { fail(res, e); }
+});
+app.delete('/api/trash', (req, res) => {
+  try {
+    const root = getRoot();
+    const tdir = path.join(root, TRASH_DIRNAME);
+    let n = 0;
+    for (const item of listTrash(root)) { fs.rmSync(path.join(tdir, item.tid), { recursive: true, force: true }); n++; }
+    res.json({ ok: true, removed: n });
+  } catch (e) { fail(res, e); }
+});
+
+// ---------- Emplacements & import d'anciens réglages ----------
+app.get('/api/app-info', (req, res) => {
+  const rootDir = getRootOrEmpty();
+  let version = '';
+  try { version = require('./package.json').version; } catch (e) {}
+  res.json({
+    version, installDir: __dirname, rootDir, localFile: LOCAL_FILE,
+    configDir: rootDir ? path.join(rootDir, CONFIG_DIRNAME) : DATA_DIR,
+    trashDir: rootDir ? path.join(rootDir, TRASH_DIRNAME) : '',
+    rootMissing: !!rootDir && !fs.existsSync(rootDir)
+  });
+});
+// Importe les réglages d'une ancienne installation (son dossier « data », ou le dossier de
+// l'application lui-même, ou un dossier de réglages tiré d'une sauvegarde). Les réglages actuels
+// sont d'abord mis de côté dans _ScubaPilot/_avant-import-<date>/ : l'import est réversible.
+app.post('/api/config/import', (req, res) => {
+  try {
+    getRoot();
+    const target = configDir();
+    let src = String((req.body && req.body.dir) || '').trim().replace(/^"|"$/g, '');
+    if (!src || !fs.existsSync(src) || !fs.statSync(src).isDirectory()) return res.status(400).json({ error: 'IMPORT_DIR_NOT_FOUND' });
+    const has = d => CONFIG_FILES.some(f => fs.existsSync(path.join(d, f)));
+    if (!has(src)) {
+      const sub = [path.join(src, 'data'), path.join(src, CONFIG_DIRNAME), path.join(src, '_ScubaPilot-parametres')].find(d => fs.existsSync(d) && has(d));
+      if (!sub) return res.status(400).json({ error: 'IMPORT_NOTHING_FOUND' });
+      src = sub;
+    }
+    if (path.resolve(src) === path.resolve(target)) return res.status(400).json({ error: 'IMPORT_SAME_DIR' });
+    const found = CONFIG_FILES.filter(f => fs.existsSync(path.join(src, f)));
+    // Tout vérifier AVANT de toucher à quoi que ce soit.
+    const parsed = {};
+    for (const f of found) parsed[f] = readJSONStrict(path.join(src, f), null);
+    const keep = path.join(target, `_avant-import-${trashStamp()}`);
+    fs.mkdirSync(keep, { recursive: true });
+    for (const f of CONFIG_FILES) if (fs.existsSync(path.join(target, f))) fs.copyFileSync(path.join(target, f), path.join(keep, f));
+    for (const f of found) writeJSON(path.join(target, f), f === 'settings.json' ? stripRoot(parsed[f]) : parsed[f]);
+    res.json({ ok: true, imported: found, from: src, previousSavedIn: keep });
+  } catch (e) { fail(res, e); }
+});
 
 // ---------- Settings ----------
-app.get('/api/settings', (req, res) => { try { res.json(readJSONStrict(SETTINGS_FILE, {})); } catch (e) { fail(res, e); } });
-app.put('/api/settings', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(SETTINGS_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
+// Les réglages renvoyés au navigateur = réglages partagés (dans la racine) + chemin de la racine (local).
+app.get('/api/settings', (req, res) => {
+  try {
+    const rootDir = getRootOrEmpty();
+    if (rootDir && !fs.existsSync(rootDir)) return res.json({ rootDir, rootMissing: true });
+    res.json({ ...stripRoot(readJSONStrict(cfg('settings.json'), {})), rootDir });
+  } catch (e) { fail(res, e); }
+});
+app.put('/api/settings', (req, res) => {
+  try {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ error: 'INVALID_DATA' });
+    const { rootMissing, ...body } = req.body;
+    const prevRoot = getRootOrEmpty();
+    // Sans champ rootDir dans la requête, la racine reste celle en vigueur (on ne la « vide » jamais par accident).
+    const newRoot = typeof body.rootDir === 'string' ? body.rootDir.trim() : prevRoot;
+    const norm = d => d ? path.resolve(d) : '';
+    const rootChanged = norm(newRoot) !== norm(prevRoot);
+    if (!rootChanged) { writeJSON(cfg('settings.json'), stripRoot(body)); return res.json({ ok: true }); }
+
+    // Changement (ou premier choix) de la racine.
+    if (newRoot && !fs.existsSync(newRoot)) return res.status(400).json({ error: 'ROOT_NOT_FOUND', rootDir: newRoot });
+    let prevCfg = DATA_DIR;
+    if (prevRoot && fs.existsSync(path.join(prevRoot, CONFIG_DIRNAME))) prevCfg = path.join(prevRoot, CONFIG_DIRNAME);
+    setLocalRoot(newRoot);
+    if (!newRoot) return res.json({ ok: true });
+    // Si la nouvelle racine a déjà ses propres réglages (ex. : nouvel ordinateur pointant vers le
+    // même dossier OneDrive), on les ADOPTE tels quels : surtout ne pas les écraser avec ceux du navigateur.
+    const adopted = fs.existsSync(path.join(newRoot, CONFIG_DIRNAME, 'settings.json'));
+    ensureConfigDir(newRoot, prevCfg);
+    if (!adopted) writeJSON(cfg('settings.json'), { ...stripRoot(readJSON(cfg('settings.json'), {})), ...stripRoot(body) });
+    res.json({ ok: true, adopted });
+  } catch (e) { fail(res, e); }
+});
 app.post('/api/settings/check-dir', (req, res) => {
   const dir = req.body.dir || '';
   res.json({ exists: dir ? fs.existsSync(dir) : false });
@@ -217,46 +456,45 @@ app.post('/api/settings/create-dir', (req, res) => {
 });
 
 // ---------- Course types (modèles de cours) ----------
-app.get('/api/course-types', (req, res) => { try { res.json(readJSONStrict(TYPES_FILE, [])); } catch (e) { fail(res, e); } });
-app.put('/api/course-types', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(TYPES_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
+app.get('/api/course-types', (req, res) => { try { res.json(readJSONStrict(cfg('course_types.json'), [])); } catch (e) { fail(res, e); } });
+app.put('/api/course-types', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('course_types.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Sites ----------
-app.get('/api/sites', (req, res) => { try { res.json(readJSONStrict(SITES_FILE, [])); } catch (e) { fail(res, e); } });
-app.put('/api/sites', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(SITES_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
+app.get('/api/sites', (req, res) => { try { res.json(readJSONStrict(cfg('sites.json'), [])); } catch (e) { fail(res, e); } });
+app.put('/api/sites', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('sites.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Champs du profil étudiant (modèle personnalisable) ----------
-app.get('/api/student-fields', (req, res) => { try { res.json(readJSONStrict(STUDENT_FIELDS_FILE, [])); } catch (e) { fail(res, e); } });
-app.put('/api/student-fields', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(STUDENT_FIELDS_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
+app.get('/api/student-fields', (req, res) => { try { res.json(readJSONStrict(cfg('student_fields.json'), [])); } catch (e) { fail(res, e); } });
+app.put('/api/student-fields', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('student_fields.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Bibliothèque de modèles d'email ----------
-app.get('/api/email-templates', (req, res) => { try { res.json(readJSONStrict(EMAIL_TEMPLATES_FILE, [])); } catch (e) { fail(res, e); } });
-app.put('/api/email-templates', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(EMAIL_TEMPLATES_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
+app.get('/api/email-templates', (req, res) => { try { res.json(readJSONStrict(cfg('email_templates.json'), [])); } catch (e) { fail(res, e); } });
+app.put('/api/email-templates', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('email_templates.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Liste globale de coéquipiers (Divemaster, autres instructeurs...) ----------
-app.get('/api/buddies', (req, res) => { try { res.json(readJSONStrict(BUDDIES_FILE, [])); } catch (e) { fail(res, e); } });
-app.put('/api/buddies', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(BUDDIES_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
+app.get('/api/buddies', (req, res) => { try { res.json(readJSONStrict(cfg('buddies.json'), [])); } catch (e) { fail(res, e); } });
+app.put('/api/buddies', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('buddies.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Centres partenaires (qui mandatent l'instructeur) ----------
-app.get('/api/centers', (req, res) => { try { res.json(readJSONStrict(CENTERS_FILE, [])); } catch (e) { fail(res, e); } });
-app.put('/api/centers', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(CENTERS_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
+app.get('/api/centers', (req, res) => { try { res.json(readJSONStrict(cfg('centers.json'), [])); } catch (e) { fail(res, e); } });
+app.put('/api/centers', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('centers.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Modèle de facturation (prix de base + offset par étudiant additionnel) ----------
-app.get('/api/billing', (req, res) => { try { res.json(readJSONStrict(BILLING_FILE, { currency: 'CAD', default: { basePrice: 0, minStudents: 1, extraStudentPrice: 0 }, byType: {} })); } catch (e) { fail(res, e); } });
-app.put('/api/billing', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(BILLING_FILE, req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
+app.get('/api/billing', (req, res) => { try { res.json(readJSONStrict(cfg('billing.json'), { currency: 'CAD', default: { basePrice: 0, minStudents: 1, extraStudentPrice: 0 }, byType: {} })); } catch (e) { fail(res, e); } });
+app.put('/api/billing', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('billing.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Étampe (image pour les factures, stockée en data URL) ----------
-const STAMP_FILE = path.join(DATA_DIR, 'stamp.json');
-app.get('/api/stamp', (req, res) => res.json(readJSON(STAMP_FILE, { dataUrl: '' })));
+app.get('/api/stamp', (req, res) => { try { res.json(readJSON(cfg('stamp.json'), { dataUrl: '' })); } catch (e) { fail(res, e); } });
 app.put('/api/stamp', (req, res) => {
   const d = req.body && typeof req.body.dataUrl === 'string' ? req.body.dataUrl : '';
   if (d && !/^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,/.test(d)) return res.status(400).json({ error: 'INVALID_IMAGE' });
-  writeJSON(STAMP_FILE, { dataUrl: d }); res.json({ ok: true });
+  writeJSON(cfg('stamp.json'), { dataUrl: d }); res.json({ ok: true });
 });
 
 // ---------- Stats d'un cours ----------
 function computeCourseStats(root, courseId, course) {
   const cFolder = path.join(root, courseId);
-  const types = readJSON(TYPES_FILE, []);
+  const types = readJSON(cfg('course_types.json'), []);
   const type = types.find(t => t.code === course.typeCode) || {};
   let totalPre = 0, donePre = 0, totalPost = 0, donePost = 0, corruptedStudents = 0;
   const students = [];
@@ -292,7 +530,7 @@ app.get('/api/courses', (req, res) => {
   try {
     const root = getRoot();
     if (!fs.existsSync(root)) return res.json([]);
-    const dirs = fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory());
+    const dirs = fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory() && !isReservedDir(d.name));
     const courses = [];
     for (const d of dirs) {
       const cJsonPath = path.join(root, d.name, 'course.json');
@@ -374,7 +612,7 @@ app.post('/api/courses', (req, res) => {
     if (fs.existsSync(cFolder)) return res.status(400).json({ error: 'COURSE_EXISTS' });
     fs.mkdirSync(cFolder, { recursive: true });
     ensurePhotoDir(cFolder); // dossier "Photo" créé systématiquement pour chaque nouveau cours
-    const types = readJSON(TYPES_FILE, []);
+    const types = readJSON(cfg('course_types.json'), []);
     const type = types.find(t => t.code === typeCode) || {};
     const generalPreDocs = {}; (type.generalPreDocs || []).forEach(d => generalPreDocs[d.id] = { collected: false, date: null, needed: docRequirement(d) === 'required' });
     const generalPostDocs = {}; (type.generalPostDocs || []).forEach(d => generalPostDocs[d.id] = { collected: false, date: null, needed: docRequirement(d) === 'required' });
@@ -416,7 +654,8 @@ app.delete('/api/courses/:id', (req, res) => {
     // On ne supprime qu'un vrai dossier de cours (qui contient course.json), jamais un dossier quelconque.
     if (fs.existsSync(cFolder)) {
       if (!fs.existsSync(path.join(cFolder, 'course.json'))) return res.status(400).json({ error: 'NOT_A_COURSE' });
-      fs.rmSync(cFolder, { recursive: true, force: true });
+      const tid = moveToTrash(root, cFolder, { kind: 'course', courseId: req.params.id });
+      return res.json({ ok: true, trashed: tid });
     }
     res.json({ ok: true });
   } catch (e) { fail(res, e); }
@@ -430,7 +669,7 @@ app.post('/api/courses/:id/students', (req, res) => {
     const cJsonPath = path.join(cFolder, 'course.json');
     if (!fs.existsSync(cJsonPath)) return res.status(404).json({ error: 'NOT_FOUND' });
     const course = readJSONStrict(cJsonPath, {});
-    const types = readJSON(TYPES_FILE, []);
+    const types = readJSON(cfg('course_types.json'), []);
     const type = types.find(t => t.code === course.typeCode) || { preDocs: [], postDocs: [] };
     const b = req.body || {};
     if (!b.firstName || !b.lastName) return res.status(400).json({ error: 'MISSING_FIELDS' });
@@ -461,7 +700,7 @@ app.post('/api/courses/:id/students/bulk', (req, res) => {
     const cJsonPath = path.join(cFolder, 'course.json');
     if (!fs.existsSync(cJsonPath)) return res.status(404).json({ error: 'NOT_FOUND' });
     const course = readJSONStrict(cJsonPath, {});
-    const types = readJSON(TYPES_FILE, []);
+    const types = readJSON(cfg('course_types.json'), []);
     const type = types.find(t => t.code === course.typeCode) || { preDocs: [], postDocs: [] };
     const list = Array.isArray(req.body.students) ? req.body.students : [];
     const created = [], skipped = [];
@@ -513,7 +752,7 @@ app.delete('/api/courses/:id/students/:folder', (req, res) => {
       // Seul un dossier inscrit au cours (ou contenant une fiche) peut être supprimé — pas « Photo », par exemple.
       const known = (course.students || []).includes(req.params.folder) || fs.existsSync(path.join(sFolder, 'student.json'));
       if (!known) return res.status(400).json({ error: 'NOT_A_STUDENT' });
-      fs.rmSync(sFolder, { recursive: true, force: true });
+      moveToTrash(root, sFolder, { kind: 'student', courseId: req.params.id, studentFolder: req.params.folder });
     }
     course.students = (course.students || []).filter(s => s !== req.params.folder);
     writeJSON(cJsonPath, course);
@@ -528,7 +767,7 @@ app.get('/api/global-students', (req, res) => {
     if (!fs.existsSync(root)) return res.json([]);
     const q = (req.query.q || '').toLowerCase();
     const results = [];
-    const courseDirs = fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory());
+    const courseDirs = fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory() && !isReservedDir(d.name));
     for (const cd of courseDirs) {
       const cPath = path.join(root, cd.name);
       let studentDirs = [];
@@ -638,7 +877,6 @@ app.post('/api/open-explorer', (req, res) => {
 // pour éviter d'avoir besoin d'accès internet lors de l'installation. Le zip est créé dans un
 // dossier temporaire puis envoyé en téléchargement au navigateur, qui laisse l'instructeur
 // choisir où l'enregistrer (clé USB, cloud, autre disque...).
-const BACKUP_SETTINGS_DIRNAME = '_ScubaPilot-parametres';
 function backupFileName() {
   const d = new Date();
   const pad = n => String(n).padStart(2, '0');
@@ -648,8 +886,7 @@ function backupFileName() {
 app.post('/api/backup', (req, res) => {
   let root;
   try { root = getRoot(); }
-  catch (e) { return res.status(400).json({ error: e.message === 'ROOT_NOT_SET' ? 'ROOT_NOT_SET' : e.message }); }
-  if (!fs.existsSync(root)) return res.status(400).json({ error: 'ROOT_NOT_FOUND' });
+  catch (e) { return fail(res, e); }
   let hasContent = false;
   try { hasContent = fs.readdirSync(root).length > 0; } catch (e) {}
   if (!hasContent) return res.status(400).json({ error: 'ROOT_EMPTY' });
@@ -658,36 +895,14 @@ app.post('/api/backup', (req, res) => {
   const zipPath = path.join(os.tmpdir(), filename);
   try { fs.unlinkSync(zipPath); } catch (e) {}
 
-  // Les réglages (centres, tarifs, modèles d'email, types de cours, étampe...) vivent dans le dossier
-  // data/ de l'application, hors du répertoire racine : on en met une copie dans le zip, dans un
-  // dossier à part, pour qu'une sauvegarde suffise à tout reconstruire.
-  const stageRoot = path.join(os.tmpdir(), `scubapilot-backup-${process.pid}-${Date.now()}`);
-  const stageDir = path.join(stageRoot, BACKUP_SETTINGS_DIRNAME);
-  let settingsIncluded = false;
-  try {
-    fs.mkdirSync(stageDir, { recursive: true });
-    for (const f of fs.readdirSync(DATA_DIR)) {
-      if (!f.toLowerCase().endsWith('.json')) continue;
-      fs.copyFileSync(path.join(DATA_DIR, f), path.join(stageDir, f));
-      settingsIncluded = true;
-    }
-    fs.writeFileSync(path.join(stageDir, 'LISEZ-MOI.txt'),
-      'Copie des réglages de ScubaPilot (centres, tarifs, modèles d\'email, types de cours, sites, étampe...).\r\n' +
-      'Pour les restaurer : fermez ScubaPilot, puis copiez les fichiers .json de ce dossier dans le dossier\r\n' +
-      '"data" de l\'application (remplacez les fichiers existants), et relancez ScubaPilot.\r\n' +
-      'Ce dossier ne fait pas partie de vos cours : inutile de le recopier dans le répertoire racine.\r\n', 'utf8');
-  } catch (e) { settingsIncluded = false; }
-  const cleanupStage = () => { try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch (e) {} };
-
+  // Les réglages vivent dans <racine>/_ScubaPilot/ : ils sont donc dans le zip, comme la corbeille.
+  try { configDir(); } catch (e) {}
   const escapeForPs = s => s.replace(/'/g, "''");
-  const psPaths = [`'${escapeForPs(root)}\\*'`];
-  if (settingsIncluded) psPaths.push(`'${escapeForPs(stageDir)}'`);
-  const psCommand = `Compress-Archive -Path ${psPaths.join(',')} -DestinationPath '${escapeForPs(zipPath)}' -Force -CompressionLevel Optimal`;
+  const psCommand = `Compress-Archive -Path '${escapeForPs(root)}\\*' -DestinationPath '${escapeForPs(zipPath)}' -Force -CompressionLevel Optimal`;
 
   execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCommand],
     { maxBuffer: 1024 * 1024 * 20, timeout: 10 * 60 * 1000 },
     (err, stdout, stderr) => {
-      cleanupStage();
       if (err) {
         return res.status(500).json({ error: 'BACKUP_FAILED', details: (stderr || err.message || '').toString().slice(0, 2000) });
       }
@@ -702,10 +917,15 @@ app.post('/api/backup', (req, res) => {
 
 app.get('/api/utils/format-date', (req, res) => res.json({ human: fmtDateHuman(req.query.d) }));
 
+// Au démarrage : reprise du chemin de la racine et migration des réglages vers <racine>/_ScubaPilot/.
+try { configDir(); } catch (e) { /* racine absente ou pas encore choisie : l'interface le signalera */ }
+
 const server = app.listen(PORT, HOST, () => {
   console.log('=================================================');
   console.log('  ScubaPilot');
   console.log(`  Ouvrez votre navigateur sur : http://localhost:${PORT}`);
+  console.log(`  Application : ${__dirname}`);
+  console.log(`  Racine      : ${getRootOrEmpty() || '(à choisir)'}`);
   if (!LOCAL_ONLY) console.log(`  ATTENTION : accessible depuis le réseau (${HOST}), sans mot de passe.`);
   console.log('=================================================');
 });

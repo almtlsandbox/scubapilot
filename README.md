@@ -24,4 +24,4 @@ Tableau de bord et statuts · cours multi-séances · étudiants et fiche global
 
 ## Licence et données
 
-Usage personnel. Vos cours et documents restent dans le répertoire racine que vous choisissez ; vos réglages sont dans `data/` (à sauvegarder, et à ne jamais écraser lors d'une mise à jour).
+Usage personnel. Vos cours et documents restent dans le répertoire racine que vous choisissez ; vos réglages aussi, dans son sous-dossier `_ScubaPilot` (depuis la version 1.8) : une mise à jour consiste à remplacer le dossier de l'application.

@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 const APP_RELEASE = 'Novembre 2026';
 
 // Lien de rédaction d'un courriel selon la messagerie choisie dans les Paramètres
@@ -82,6 +82,14 @@ function friendlyError(e) {
     return `Un fichier de données est illisible${f}. Rien n'a été modifié, pour ne pas écraser son contenu. Restaurez une version précédente du fichier (clic droit sur le fichier → Historique des versions dans OneDrive) ou depuis une sauvegarde, puis rechargez la page.`;
   }
   if (raw === 'INVALID_PATH') return "Nom de dossier invalide : l'opération a été refusée.";
+  if (raw === 'ROOT_NOT_FOUND') return `Le répertoire racine est introuvable${e.data && e.data.rootDir ? ' (' + e.data.rootDir + ')' : ''}. Vérifiez que OneDrive (ou le disque) est bien disponible.`;
+  if (raw === 'COURSE_EXISTS') return 'Un cours portant ce nom existe déjà : opération impossible.';
+  if (raw === 'COURSE_NOT_FOUND') return "Le cours de cet étudiant n'existe plus : restaurez d'abord le cours depuis la corbeille.";
+  if (raw === 'STUDENT_EXISTS') return 'Un étudiant du même nom existe déjà dans ce cours : restauration impossible.';
+  if (raw === 'TRASH_ENTRY_INVALID') return "Cet élément de la corbeille est incomplet et ne peut pas être restauré automatiquement. Son contenu reste dans le dossier _Corbeille.";
+  if (raw === 'IMPORT_DIR_NOT_FOUND') return "Ce dossier n'existe pas. Collez le chemin complet de l'ancien dossier de l'application (ou de son dossier « data »).";
+  if (raw === 'IMPORT_NOTHING_FOUND') return "Aucun fichier de réglages trouvé dans ce dossier. Indiquez l'ancien dossier de l'application ou son sous-dossier « data ».";
+  if (raw === 'IMPORT_SAME_DIR') return 'Ce dossier est déjà celui des réglages en cours.';
   if (raw === 'NOT_A_COURSE' || raw === 'NOT_A_STUDENT') return "Ce dossier n'est pas un cours ou un étudiant géré par ScubaPilot : il n'a pas été supprimé.";
   if (e instanceof TypeError && /fetch|network/i.test(raw)) return "ScubaPilot ne répond pas : le programme est arrêté. Relancez-le (« Lancer (avec fenetre).bat »), puis rechargez la page.";
   if (/^[A-Z0-9_]+$/.test(raw)) return `Une erreur est survenue (code : ${raw}). Réessayez.`;
@@ -387,8 +395,39 @@ async function route() {
     else if (view === 'student') { await renderStudentProfile(decodeURIComponent(rest.join('/'))); }
     else { renderDashboard(); }
   } catch (e) {
+    if (e && e.message === 'ROOT_NOT_FOUND') return renderRootMissing((e.data && e.data.rootDir) || '');
     app.innerHTML = `<div class="card"><p>${escapeHtml(friendlyError(e))}</p></div>`;
   }
+}
+// Le dossier racine enregistré n'est pas accessible (OneDrive pas démarré, disque débranché, dossier
+// déplacé) : on l'explique et on propose de réessayer ou d'indiquer le nouvel emplacement.
+function renderRootMissing(rootDir) {
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <h1>Répertoire racine introuvable</h1>
+    <div class="setup-note">
+      ScubaPilot ne trouve pas le dossier de vos cours :<br><strong>${escapeHtml(rootDir)}</strong><br><br>
+      Vos données ne sont pas perdues. Causes habituelles : OneDrive n'a pas fini de démarrer, un disque externe n'est pas branché, ou le dossier a été déplacé ou renommé.
+    </div>
+    <div class="card">
+      <div class="actions-inline"><button class="btn" id="rm-retry">↻ Réessayer</button></div>
+      <label for="rm-root" style="margin-top:14px">Le dossier a changé d'emplacement ? Indiquez le nouveau chemin :</label>
+      <input id="rm-root" value="${escapeHtml(rootDir)}">
+      <div class="actions-inline"><button class="btn secondary small" id="rm-save">Utiliser ce dossier</button></div>
+      <p class="muted" id="rm-status"></p>
+    </div>
+  `;
+  document.getElementById('rm-retry').addEventListener('click', () => { refsLoaded = false; route(); });
+  document.getElementById('rm-save').addEventListener('click', async () => {
+    const dir = document.getElementById('rm-root').value.trim();
+    const status = document.getElementById('rm-status');
+    try {
+      const r = await api('POST', '/api/settings/check-dir', { dir });
+      if (!r.exists) { status.textContent = "❌ Ce dossier n'existe pas non plus."; return; }
+      await api('PUT', '/api/settings', { rootDir: dir });
+      refsLoaded = false; route();
+    } catch (e) { status.textContent = 'Erreur : ' + friendlyError(e); }
+  });
 }
 window.addEventListener('hashchange', route);
 window.addEventListener('DOMContentLoaded', route);
@@ -1914,12 +1953,13 @@ async function renderCourseDetail(id) {
   document.getElementById('delete-course-btn').addEventListener('click', async () => {
     const ok = await showConfirmModal({
       title: 'Supprimer ce cours ?',
-      message: `Cette action supprime <strong>définitivement</strong> le cours <strong>${escapeHtml(course.id)}</strong> et tous les dossiers étudiants associés (documents inclus) de votre disque. Cette action est irréversible.`,
+      message: `Le cours <strong>${escapeHtml(course.id)}</strong> et tous ses dossiers d'étudiants (documents inclus) seront déplacés dans la <strong>corbeille</strong> de ScubaPilot. Vous pourrez le restaurer depuis Paramètres → Corbeille.`,
       requireTypeText: course.id
     });
     if (!ok) return;
-    await api('DELETE', '/api/courses/' + encodeURIComponent(course.id));
-    toast('Cours supprimé');
+    try { await api('DELETE', '/api/courses/' + encodeURIComponent(course.id)); }
+    catch (e) { toast('Suppression impossible : ' + friendlyError(e), true); return; }
+    toast('Cours déplacé dans la corbeille (Paramètres → Corbeille pour le restaurer)');
     location.hash = '#/dashboard';
   });
   document.getElementById('edit-course-btn').addEventListener('click', () => renderEditCourseForm(course));
@@ -2264,12 +2304,13 @@ function buildStudentDetails(course, type, s) {
   wrap.querySelector('[data-act=delete-student]').addEventListener('click', async () => {
     const ok = await showConfirmModal({
       title: 'Supprimer cet étudiant ?',
-      message: `Cette action supprime <strong>définitivement</strong> le dossier de <strong>${escapeHtml(s.firstName)} ${escapeHtml(s.lastName)}</strong> (et tous ses documents) de ce cours. Cette action est irréversible.`,
+      message: `Le dossier de <strong>${escapeHtml(s.firstName)} ${escapeHtml(s.lastName)}</strong> (et tous ses documents) sera retiré de ce cours et déplacé dans la <strong>corbeille</strong> de ScubaPilot. Vous pourrez le restaurer depuis Paramètres → Corbeille.`,
       requireTypeText: s.lastName
     });
     if (!ok) return;
-    await api('DELETE', `/api/courses/${encodeURIComponent(course.id)}/students/${encodeURIComponent(s.folder)}`);
-    toast('Étudiant supprimé');
+    try { await api('DELETE', `/api/courses/${encodeURIComponent(course.id)}/students/${encodeURIComponent(s.folder)}`); }
+    catch (e) { toast('Suppression impossible : ' + friendlyError(e), true); return; }
+    toast('Étudiant déplacé dans la corbeille (Paramètres → Corbeille pour le restaurer)');
     route();
   });
   wrap.querySelector('[data-act=edit-info]').addEventListener('click', () => toggleEditInfo(wrap, course, s));
@@ -3533,6 +3574,106 @@ function buildStudentFieldsCard() {
   return card;
 }
 
+// ---------- Paramètres : emplacements & corbeille ----------
+async function renderLocationsCard() {
+  const card = document.getElementById('locations-card');
+  if (!card) return;
+  let info;
+  try { info = await api('GET', '/api/app-info'); }
+  catch (e) { card.innerHTML = `<h2>Emplacements</h2><p class="muted">${escapeHtml(friendlyError(e))}</p>`; return; }
+  const line = (label, value, help) => `<tr><td style="white-space:nowrap;vertical-align:top"><strong>${label}</strong></td><td><code style="word-break:break-all">${escapeHtml(value || '—')}</code>${help ? `<br><span class="muted">${help}</span>` : ''}</td></tr>`;
+  card.innerHTML = `
+    <h2>Emplacements</h2>
+    <table><tbody>
+      ${line('Application', info.installDir, `Version ${escapeHtml(info.version || APP_VERSION)}. C'est ce dossier que vous remplacez lors d'une mise à jour.`)}
+      ${line('Réglages', info.configDir, info.rootDir ? 'Centres, tarifs, modèles d\'email, types de cours, étampe. Rangés avec vos cours : une mise à jour ne les touche plus.' : 'Provisoire : ils seront rangés dans le répertoire racine dès qu\'il sera choisi.')}
+      ${line('Corbeille', info.trashDir, '')}
+      ${line('Chemin de la racine', info.localFile, 'Propre à cet ordinateur.')}
+    </tbody></table>
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer">Importer les réglages d'une ancienne installation</summary>
+      <p class="muted" style="margin-top:8px">À utiliser si vos centres, tarifs ou modèles ont disparu après une mise à jour : indiquez l'ancien dossier de l'application (ou son sous-dossier <code>data</code>). Les réglages actuels sont mis de côté avant d'être remplacés.</p>
+      <label for="imp-dir">Chemin de l'ancien dossier</label>
+      <input id="imp-dir" placeholder="ex. : C:\\Users\\vous\\Documents\\scubapilot-ancien">
+      <div class="actions-inline"><button class="btn secondary small" id="imp-btn">Importer ces réglages</button></div>
+      <p class="muted" id="imp-status"></p>
+    </details>
+  `;
+  card.querySelector('#imp-btn').addEventListener('click', async () => {
+    const dir = card.querySelector('#imp-dir').value.trim();
+    const status = card.querySelector('#imp-status');
+    if (!dir) { status.textContent = 'Indiquez un chemin.'; return; }
+    const ok = await showConfirmModal({
+      title: 'Importer ces réglages ?',
+      message: `Les réglages actuels (centres, tarifs, modèles d'email, types de cours...) seront <strong>remplacés</strong> par ceux du dossier <strong>${escapeHtml(dir)}</strong>. Une copie des réglages actuels est conservée dans le dossier des réglages.`,
+      confirmText: 'Importer'
+    });
+    if (!ok) return;
+    try {
+      const r = await api('POST', '/api/config/import', { dir });
+      toast(`Réglages importés (${r.imported.length} fichier(s))`);
+      await loadRefs(true);
+      route();
+    } catch (e) { status.textContent = '❌ ' + friendlyError(e); }
+  });
+}
+async function renderTrashCard() {
+  const card = document.getElementById('trash-card');
+  if (!card) return;
+  let items;
+  try { items = await api('GET', '/api/trash'); }
+  catch (e) { card.innerHTML = `<h2>Corbeille</h2><p class="muted">${escapeHtml(friendlyError(e))}</p>`; return; }
+  const when = iso => iso ? new Date(iso).toLocaleString('fr-CA', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const label = it => it.kind === 'course' ? `Cours <strong>${escapeHtml(it.name)}</strong>`
+    : it.kind === 'student' ? `Étudiant <strong>${escapeHtml(it.name)}</strong> <span class="muted">— cours ${escapeHtml(it.courseId)}</span>`
+    : `<strong>${escapeHtml(it.name)}</strong>`;
+  card.innerHTML = `
+    <h2>Corbeille</h2>
+    <p class="muted">Les cours et étudiants supprimés sont conservés ici (dossier <code>_Corbeille</code> du répertoire racine), avec tous leurs documents, jusqu'à ce que vous les supprimiez définitivement.</p>
+    ${items.length ? `
+      <table>
+        <thead><tr><th>Élément</th><th>Supprimé le</th><th></th></tr></thead>
+        <tbody>${items.map(it => `
+          <tr>
+            <td>${label(it)}</td>
+            <td>${escapeHtml(when(it.deletedAt))}</td>
+            <td style="white-space:nowrap;text-align:right">
+              ${it.restorable ? `<button class="btn secondary small" data-restore="${escapeHtml(it.tid)}">↩ Restaurer</button>` : ''}
+              <button class="btn danger small" data-purge="${escapeHtml(it.tid)}">Supprimer définitivement</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="actions-inline"><button class="btn danger small" id="trash-empty">Vider la corbeille (${items.length})</button></div>
+    ` : '<p class="muted"><em>La corbeille est vide.</em></p>'}
+  `;
+  const byId = Object.fromEntries(items.map(it => [it.tid, it]));
+  card.querySelectorAll('[data-restore]').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      const r = await api('POST', `/api/trash/${encodeURIComponent(btn.dataset.restore)}/restore`);
+      toast(r.kind === 'course' ? 'Cours restauré' : 'Étudiant restauré dans son cours');
+      renderTrashCard();
+    } catch (e) { toast('Restauration impossible : ' + friendlyError(e), true); }
+  }));
+  card.querySelectorAll('[data-purge]').forEach(btn => btn.addEventListener('click', async () => {
+    const it = byId[btn.dataset.purge];
+    if (!(await confirmDelete(`Supprimer définitivement « ${it.name} » et tous ses documents ? Cette fois, c'est irréversible.`, { title: 'Suppression définitive', confirmText: 'Supprimer définitivement' }))) return;
+    try { await api('DELETE', '/api/trash/' + encodeURIComponent(it.tid)); toast('Supprimé définitivement'); renderTrashCard(); }
+    catch (e) { toast('Erreur : ' + friendlyError(e), true); }
+  }));
+  const emptyBtn = card.querySelector('#trash-empty');
+  if (emptyBtn) emptyBtn.addEventListener('click', async () => {
+    const ok = await showConfirmModal({
+      title: 'Vider la corbeille ?',
+      message: `Les <strong>${items.length}</strong> élément(s) de la corbeille et tous leurs documents seront supprimés <strong>définitivement</strong>. Cette action est irréversible.`,
+      confirmText: 'Vider la corbeille', requireTypeText: 'VIDER'
+    });
+    if (!ok) return;
+    try { await api('DELETE', '/api/trash'); toast('Corbeille vidée'); renderTrashCard(); }
+    catch (e) { toast('Erreur : ' + friendlyError(e), true); }
+  });
+}
+
 function renderSettings() {
   const app = document.getElementById('app');
   const s = state.settings;
@@ -3564,13 +3705,23 @@ function renderSettings() {
       <p class="muted" id="s-root-status"></p>
     </div>
 
+    <div class="card" id="locations-card">
+      <h2>Emplacements</h2>
+      <p class="muted">Chargement...</p>
+    </div>
+
     <div class="card">
       <h2>Sauvegarde</h2>
-      <p class="muted">Crée une copie .zip de tout le répertoire racine (tous les cours, étudiants et documents) <strong>et de vos réglages</strong> (centres, tarifs, modèles d'email, types de cours, étampe — rangés dans le dossier <code>_ScubaPilot-parametres</code> du zip) et propose de l'enregistrer où vous voulez (clé USB, cloud, autre disque...). Nom du fichier : <code>PLONGEE_BACKUP_AAAAMMJJ_HHMM.zip</code>.</p>
+      <p class="muted">Crée une copie .zip de tout le répertoire racine : tous les cours, étudiants et documents, <strong>vos réglages</strong> (dossier <code>_ScubaPilot</code>) et la corbeille. Vous choisissez où l'enregistrer (clé USB, autre disque...). Nom du fichier : <code>PLONGEE_BACKUP_AAAAMMJJ_HHMM.zip</code>.</p>
       <div class="actions-inline">
         <button class="btn small" id="s-backup-btn">💾 Créer une sauvegarde (.zip)</button>
       </div>
       <p class="muted" id="s-backup-status"></p>
+    </div>
+
+    <div class="card" id="trash-card">
+      <h2>Corbeille</h2>
+      <p class="muted">Chargement...</p>
     </div>
 
     <div class="card">
@@ -3628,11 +3779,21 @@ function renderSettings() {
     document.getElementById('s-root-status').textContent = '✅ Répertoire créé (ou déjà existant).';
   });
   document.getElementById('s-save-root').addEventListener('click', async () => {
-    s.rootDir = document.getElementById('s-root').value;
-    await api('PUT', '/api/settings', s);
-    toast('Répertoire racine enregistré');
-    route();
+    const previous = s.rootDir;
+    const status = document.getElementById('s-root-status');
+    s.rootDir = document.getElementById('s-root').value.trim();
+    try {
+      const r = await api('PUT', '/api/settings', s);
+      toast(r.adopted ? 'Répertoire racine enregistré — les réglages déjà présents dans ce dossier sont utilisés' : 'Répertoire racine enregistré');
+      await loadRefs(true); // les réglages viennent de la racine : on les relit
+      route();
+    } catch (e) {
+      s.rootDir = previous;
+      status.textContent = e.message === 'ROOT_NOT_FOUND' ? "❌ Ce dossier n'existe pas. Cliquez d'abord sur « Créer si absent »." : '❌ ' + friendlyError(e);
+    }
   });
+  renderLocationsCard();
+  renderTrashCard();
   document.getElementById('s-backup-btn').addEventListener('click', async () => {
     const btn = document.getElementById('s-backup-btn');
     const statusEl = document.getElementById('s-backup-status');

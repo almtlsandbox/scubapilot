@@ -228,7 +228,7 @@ Un même étudiant peut suivre plusieurs cours. Sa **fiche globale** (lien à c�
 ### 5.8 Clore et supprimer
 
 - **Marquer un cours comme complété** : case en bas à droite de la carte du cours. Un badge ✅ Clos apparaît à côté du titre.
-- **Supprimer un cours ou un étudiant** efface réellement les dossiers et documents sur le disque. Il faut donc **retaper le nom exact** dans la fenêtre de confirmation avant que le bouton ne s'active. Pensez à votre [sauvegarde](#13-sauvegarde) avant.
+- **Supprimer un cours ou un étudiant** le déplace dans la **corbeille** de ScubaPilot, avec tous ses documents (voir [Corbeille](#corbeille)). Il faut **retaper le nom exact** dans la fenêtre de confirmation avant que le bouton ne s'active.
 
 ### 5.9 Importer un roster (PDF)
 
@@ -308,7 +308,7 @@ Dans **Paramètres → Facturation** :
 - **Devise** (CAD par défaut) ;
 - **Taxes** : deux taxes avec libellé et taux (T.P.S. 5 % et T.V.Q. 9,975 % au départ). Elles ne s'appliquent que si vous les cochez sur une facture ;
 - **Message de pied de page** (« MERCI DE VOTRE CONFIANCE ! ») ;
-- **Étampe** : choisissez une image PNG ou JPG (idéalement fond transparent ou blanc). Elle est stockée localement dans `data/stamp.json` ;
+- **Étampe** : choisissez une image PNG ou JPG (idéalement fond transparent ou blanc). Elle est stockée avec vos réglages (`_ScubaPilot/stamp.json` dans le répertoire racine) ;
 - **Grilles de tarifs** : chaque grille s'applique à un centre et/ou un type de cours (ou « tous ») et contient des **groupes de prix** (description + prix unitaire), par exemple « Cours complet — 120 $ » et « Théorie + MP seulement — 70 $ ». La grille la plus précise l'emporte : centre + type, puis centre, puis type, puis générale.
 
 N'oubliez pas votre **adresse** dans « Vos coordonnées » : elle figure en en-tête.
@@ -406,11 +406,11 @@ Le logo est le fichier `public/logo.svg`. Pour le remplacer, écrasez ce fichier
 
 - Un cours = un dossier `TYPE_DATE`. Un étudiant = un sous-dossier `Prénom NOM`.
 - `course.json` et `student.json` sont gérés par l'application (la facture est enregistrée dans `course.json`). Ne les renommez pas.
-- Les réglages (types de cours, centres, tarifs, modèles, etc.) sont dans le dossier **`data/`** de l'application, **pas** dans le répertoire racine :
+- Les réglages (types de cours, centres, tarifs, modèles, etc.) sont rangés dans le dossier **`_ScubaPilot`** du répertoire racine : ils suivent vos cours et sont inclus dans la sauvegarde.
 
 | Fichier | Contenu |
 |---|---|
-| `settings.json` | Répertoire racine, vos coordonnées |
+| `settings.json` | Vos coordonnées et préférences |
 | `centers.json` | Centres partenaires |
 | `buddies.json` | Coéquipiers |
 | `course_types.json` | Types de cours et documents |
@@ -422,12 +422,23 @@ Le logo est le fichier `public/logo.svg`. Pour le remplacer, écrasez ce fichier
 
 ## 13. Sauvegarde
 
-Paramètres → carte **Sauvegarde** → bouton de création. L'application crée un .zip et vous laisse choisir où l'enregistrer (clé USB, disque externe...). Depuis la version 1.7, ce zip contient **tout** :
+Paramètres → carte **Sauvegarde** → bouton de création. L'application crée un .zip de tout le répertoire racine et vous laisse choisir où l'enregistrer (clé USB, disque externe...). Ce zip contient **tout** :
 
-- le **répertoire racine** : cours, étudiants, documents, photos ;
-- vos **réglages** (centres, tarifs, modèles d'email, types de cours, sites, étampe), rangés dans le dossier `_ScubaPilot-parametres` du zip.
+- vos cours, étudiants, documents et photos ;
+- vos **réglages** (dossier `_ScubaPilot` : centres, tarifs, modèles d'email, types de cours, sites, étampe, coordonnées) ;
+- la **corbeille** (dossier `_Corbeille`).
 
-**Restaurer les réglages** : fermez ScubaPilot, copiez les fichiers `.json` du dossier `_ScubaPilot-parametres` dans le dossier `data/` de l'application, puis relancez. Un fichier `LISEZ-MOI.txt` dans le zip le rappelle.
+**Restaurer** : décompressez le zip dans un dossier, puis indiquez ce dossier comme répertoire racine dans les Paramètres. Les réglages qu'il contient sont repris automatiquement.
+
+### Corbeille
+
+Un cours ou un étudiant supprimé n'est pas effacé : il est déplacé dans le dossier `_Corbeille` du répertoire racine, avec tous ses documents. Dans **Paramètres → Corbeille** :
+
+- **↩ Restaurer** remet l'élément à sa place. Un étudiant ne peut être restauré que si son cours existe : restaurez d'abord le cours s'il est lui aussi dans la corbeille.
+- **Supprimer définitivement** efface l'élément pour de bon.
+- **Vider la corbeille** efface tout son contenu (il faut taper `VIDER` pour confirmer).
+
+La corbeille ne se vide jamais toute seule.
 
 ### Si un fichier est signalé « illisible »
 
@@ -437,23 +448,22 @@ Conseil : sauvegardez avant toute suppression de cours et avant chaque mise à j
 
 ## 14. Mise à jour de l'application
 
+Depuis la version 1.8, vos réglages ne sont plus dans le dossier de l'application : ils sont rangés avec vos cours, dans le dossier `_ScubaPilot` du répertoire racine. Le chemin du répertoire racine, lui, est mémorisé dans votre profil Windows. Une mise à jour se résume donc à remplacer le dossier de l'application :
+
 1. Fermez l'application (`Arreter.bat`).
-2. **Remplacez** : `server.js`, `package.json`, le dossier `public/`, `README.md`, `docs/` et les scripts `.bat`/`.vbs`.
-3. **Ne remplacez jamais** vos fichiers du dossier `data/` : ils contiennent votre travail (types de cours, centres, tarifs, modèles, etc.). L'application crée seule les nouveaux fichiers dont elle a besoin au démarrage.
-4. Si `package.json` a changé, relancez `npm install` dans le dossier.
-5. Relancez l'application et rechargez la page (`Ctrl + F5`). Vérifiez le numéro de version en bas de la barre latérale.
+2. **Remplacez tout le dossier de l'application** par le nouveau (au même endroit, pour que le raccourci de démarrage reste valable).
+3. Si `package.json` a changé, relancez `npm install` dans le dossier.
+4. Relancez l'application et rechargez la page (`Ctrl + F5`). Vérifiez le numéro de version en bas de la barre latérale, ou dans **Paramètres → Emplacements**.
 
-Avec Git : `git pull`, puis `npm install` si nécessaire. Vos fichiers `data/` modifiés peuvent entrer en conflit avec ceux du dépôt : gardez les vôtres.
+**Première mise à jour vers la 1.8 (une seule fois)** : recopiez encore votre ancien dossier `data` dans le nouveau dossier avant de lancer l'application. Au démarrage, elle déplace elle-même vos réglages vers le répertoire racine. Si vous avez oublié cette étape et que vos centres ou tarifs ont disparu : **Paramètres → Emplacements → Importer les réglages d'une ancienne installation**, puis indiquez l'ancien dossier de l'application.
 
-### Historique des versions
+### Emplacements
 
-| Version | Principales nouveautés |
-|---|---|
-| 1.4 | Note libre par étudiant (enregistrement automatique, badge, rapport, fiche globale) |
-| 1.3 | Petit calendrier 📅 à côté de chaque date, saisie d'heure 24 h au clavier avec suggestions toutes les 15 minutes |
-| 1.2 | Éditeur de facture (groupes de tarifs, parts, taxes, logo, étampe, aperçu, PDF, courriel), grilles de tarifs par centre et type, numérotation automatique, adresse de l'instructeur |
-| 1.1 | Transfert de dossier pour les étudiants « cours seulement », instructeur certificateur choisi parmi les coéquipiers, correction du calcul des %, fichiers sans cache, version affichée |
-| 1.0 | Cours, étudiants, checklists, emails, rapports, sauvegarde, logo |
+La carte **Paramètres → Emplacements** indique où se trouvent le dossier de l'application en cours d'exécution, les réglages, la corbeille et le fichier qui mémorise le chemin de la racine. C'est le premier endroit à regarder si l'application ne semble pas à jour : le chemin « Application » montre quelle copie tourne réellement.
+
+### Si le répertoire racine est introuvable
+
+Si OneDrive n'a pas fini de démarrer, si un disque n'est pas branché ou si le dossier a été déplacé, ScubaPilot affiche « Répertoire racine introuvable » au lieu d'un tableau de bord vide. Cliquez sur **Réessayer**, ou indiquez le nouvel emplacement du dossier.
 
 ## 15. Dépannage
 
