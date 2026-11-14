@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.9';
+const APP_VERSION = '1.9.1';
 const APP_RELEASE = 'Novembre 2026';
 
 // Lien de rédaction d'un courriel selon la messagerie choisie dans les Paramètres

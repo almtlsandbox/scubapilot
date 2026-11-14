@@ -133,49 +133,59 @@ function openBrowser() {
   } catch (e) {}
 }
 
-// ---- Démarrage automatique (Windows) : un raccourci dans le dossier « Démarrage » ----
-// Fait avec PowerShell (présent sur tous les Windows) ; les chemins passent par des variables
-// d'environnement pour éviter tout problème de guillemets ou d'accents.
+// ---- Démarrage automatique (Windows) ----
+// Un simple fichier « ScubaPilot.cmd » est écrit dans le dossier « Démarrage » de Windows. Il lance
+// ce lanceur en fenêtre réduite à l'ouverture de session.
+// Volontairement SANS PowerShell, sans registre et sans VBScript : la version 1.9 appelait PowerShell
+// avec une commande encodée, ce que les antivirus (Norton, entre autres) bloquent par principe.
+const STARTUP_FILE = 'ScubaPilot.cmd';
+function startupDir() {
+  if (process.env.SCUBAPILOT_STARTUP_DIR) return process.env.SCUBAPILOT_STARTUP_DIR; // pour les tests
+  if (!IS_WIN || !process.env.APPDATA) return '';
+  return path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
+}
+// Un raccourci .lnk contient le chemin de sa cible en clair (ASCII et/ou UTF-16) : on peut donc
+// reconnaître les anciens raccourcis de ScubaPilot sans passer par un outil Windows.
+function lnkMentions(file, words) {
+  let buf;
+  try { buf = fs.readFileSync(file); } catch (e) { return false; }
+  const hay8 = buf.toString('latin1').toLowerCase(), hay16 = buf.toString('utf16le').toLowerCase();
+  return words.some(w => hay8.includes(w.toLowerCase()) || hay16.includes(w.toLowerCase()));
+}
 function startupShortcut(install) {
-  if (!IS_WIN) { say("Le démarrage automatique n'est géré que sous Windows."); return 1; }
-  const script = [
-    "$ErrorActionPreference = 'Stop'",
-    "$startup = [Environment]::GetFolderPath('Startup')",
-    "$w = New-Object -ComObject WScript.Shell",
-    // Anciens raccourcis de ScubaPilot (dont ceux vers Demarrage-automatique.vbs, même d'un autre dossier)
-    "Get-ChildItem -LiteralPath $startup -Filter *.lnk | ForEach-Object {",
-    "  $s = $w.CreateShortcut($_.FullName)",
-    "  $t = ($s.TargetPath + ' ' + $s.Arguments)",
-    "  if ($_.Name -eq 'ScubaPilot.lnk' -or $t -match 'Demarrage-automatique\\.vbs' -or ($t -match 'launcher\\.js' -and $t -match 'scubapilot')) {",
-    "    Remove-Item -LiteralPath $_.FullName -Force",
-    "    Write-Output ('  Ancien raccourci retire : ' + $_.Name)",
-    "  }",
-    "}",
-    "if ($env:SP_INSTALL -eq '1') {",
-    "  $l = $w.CreateShortcut((Join-Path $startup 'ScubaPilot.lnk'))",
-    "  $l.TargetPath = $env:SP_NODE",
-    "  $l.Arguments = $env:SP_ARGS",
-    "  $l.WorkingDirectory = $env:SP_DIR",
-    "  $l.WindowStyle = 7",
-    "  $l.Description = 'ScubaPilot'",
-    "  $l.Save()",
-    "  Write-Output ('  Raccourci cree : ' + (Join-Path $startup 'ScubaPilot.lnk'))",
-    "}"
-  ].join('\n');
+  const dir = startupDir();
+  if (!dir) { say("Le démarrage automatique n'est géré que sous Windows."); return 1; }
   try {
-    // -EncodedCommand (UTF-16 en base64) : le script arrive intact, quels que soient les guillemets et retours de ligne.
-    const encoded = Buffer.from(script, 'utf16le').toString('base64');
-    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
-      encoding: 'utf8', windowsHide: true,
-      env: { ...process.env, SP_INSTALL: install ? '1' : '0', SP_NODE: process.execPath, SP_ARGS: `"${path.join(APP_DIR, 'launcher.js')}"`, SP_DIR: APP_DIR }
-    });
-    if (out.trim()) say(out.trimEnd());
-    say(install
-      ? 'Démarrage automatique installé : ScubaPilot se lancera à chaque ouverture de session Windows.'
-      : 'Démarrage automatique retiré.');
+    if (!fs.existsSync(dir)) { say(`Dossier « Démarrage » introuvable : ${dir}`); return 1; }
+    // 1) Retirer les anciens lancements de ScubaPilot (dont les raccourcis vers Demarrage-automatique.vbs,
+    //    même s'ils pointent vers un autre dossier : c'est ce qui relançait une vieille version).
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      const lower = name.toLowerCase();
+      const ours = lower === STARTUP_FILE.toLowerCase() || lower === 'scubapilot.lnk' || lower === 'demarrage-automatique.vbs' ||
+        (lower.endsWith('.lnk') && lnkMentions(full, ['Demarrage-automatique.vbs', 'scubapilot\\launcher.js', 'scubapilot/launcher.js']));
+      if (!ours) continue;
+      try { fs.unlinkSync(full); if (lower !== STARTUP_FILE.toLowerCase()) say(`  Ancien lancement retiré : ${name}`); }
+      catch (e) { say(`  Impossible de retirer ${name} : ${e.code || e.message}`); }
+    }
+    if (!install) { say('Démarrage automatique retiré.'); return 0; }
+    // 2) Écrire le nouveau fichier de lancement.
+    const q = s => '"' + String(s).replace(/%/g, '%%') + '"';
+    const content = [
+      '@echo off',
+      'rem Demarrage automatique de ScubaPilot.',
+      'rem Cree par "Installer le demarrage automatique.bat" ; retire par "Retirer le demarrage automatique.bat".',
+      'chcp 65001 >nul',
+      `start "ScubaPilot" /min ${q(process.execPath)} ${q(path.join(APP_DIR, 'launcher.js'))}`,
+      ''
+    ].join('\r\n');
+    fs.writeFileSync(path.join(dir, STARTUP_FILE), content, 'utf8');
+    say(`  Fichier créé : ${path.join(dir, STARTUP_FILE)}`);
+    say('Démarrage automatique installé : ScubaPilot se lancera à chaque ouverture de session Windows.');
+    say("(Si vous déplacez le dossier de l'application, relancez cette installation.)");
     return 0;
   } catch (e) {
-    say('Impossible de modifier le démarrage automatique : ' + String((e.stderr && e.stderr.toString()) || e.message).trim());
+    say('Impossible de modifier le démarrage automatique : ' + (e.code || e.message));
     return 1;
   }
 }

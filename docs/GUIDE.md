@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.4 — Octobre 2026**
+**Version 1.9.1 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -43,7 +43,7 @@ Hors périmètre : gestion du matériel, des bateaux, de la caisse ou de la loca
 
 ## 2. Installation
 
-L'installation se fait une seule fois. L'application est écrite pour **Windows** ; le serveur fonctionne aussi sous macOS et Linux, mais le bouton « Ouvrir dans l'Explorateur » et la sauvegarde en .zip utilisent des outils Windows (voir [Notes techniques](#16-notes-techniques)).
+L'installation se fait une seule fois. L'application est écrite pour **Windows** ; le serveur fonctionne aussi sous macOS et Linux, mais le bouton « Ouvrir dans l'Explorateur », les fichiers de lancement `.bat` et le démarrage automatique sont propres à Windows (voir [Notes techniques](#16-notes-techniques)).
 
 ### 2.1 Installer Node.js
 
@@ -53,7 +53,7 @@ L'installation se fait une seule fois. L'application est écrite pour **Windows*
 
 ### 2.2 Récupérer l'application
 
-**Option A — téléchargement du zip** (le plus simple) : décompressez `ScubaPilot-v1.4.zip` où vous voulez, par exemple `C:\Apps\ScubaPilot`. Choisissez un emplacement qui ne change pas (évitez le dossier Téléchargements).
+**Option A — téléchargement du zip** (le plus simple) : décompressez le fichier `ScubaPilot-vX.Y.zip` où vous voulez, par exemple `C:\Apps\ScubaPilot`. Choisissez un emplacement qui ne change pas (évitez le dossier Téléchargements).
 
 **Option B — depuis GitHub** (si vous avez Git) :
 
@@ -63,14 +63,11 @@ git clone https://github.com/almtlsandbox/scubapilot.git C:\Apps\ScubaPilot
 
 Le dépôt est privé : Git vous demandera de vous connecter à votre compte GitHub. Pour mettre à jour plus tard : `git pull`.
 
-### 2.3 Installer les dépendances
+### 2.3 Installer les composants
 
-1. Ouvrez une invite de commande **dans le dossier de l'application** (dans l'Explorateur, tapez `cmd` dans la barre d'adresse du dossier, puis Entrée).
-2. Tapez :
-   ```
-   npm install
-   ```
-3. Attendez la fin (quelques secondes). Un dossier `node_modules` apparaît : c'est normal.
+Rien à faire à la main : au premier lancement, **`Lancer ScubaPilot.bat`** installe lui-même les composants nécessaires (il lui faut une connexion Internet, quelques secondes). Un dossier `node_modules` apparaît : c'est normal.
+
+Si vous préférez le faire vous-même : ouvrez une invite de commande dans le dossier de l'application et tapez `npm install`.
 
 ## 3. Lancer et arrêter l'application
 
@@ -86,7 +83,9 @@ L'ancien fichier `Lancer (avec fenetre).bat` est conservé pour vos raccourcis e
 
 ### Démarrage automatique à l'ouverture de session
 
-Double-cliquez sur **`Installer le demarrage automatique.bat`**. Un raccourci « ScubaPilot » est créé dans le dossier « Démarrage » de Windows ; tout ancien raccourci de ScubaPilot (y compris vers `Demarrage-automatique.vbs`, même depuis un autre dossier) est retiré. À chaque ouverture de session, l'application démarre sans fenêtre ; ouvrez simplement `http://localhost:4531` (ajoutez-le aux favoris).
+Double-cliquez sur **`Installer le demarrage automatique.bat`**. Un petit fichier `ScubaPilot.cmd` est créé dans le dossier « Démarrage » de Windows ; tout ancien lancement de ScubaPilot qui s'y trouvait (y compris un raccourci vers `Demarrage-automatique.vbs`, même depuis un autre dossier) est retiré. À chaque ouverture de session, l'application démarre toute seule : une fenêtre réduite apparaît une ou deux secondes dans la barre des tâches, puis disparaît. Ouvrez ensuite simplement `http://localhost:4531` (ajoutez-le aux favoris).
+
+Cette installation n'utilise ni PowerShell, ni le registre, ni VBScript, pour ne pas déclencher les antivirus. Si vous déplacez le dossier de l'application, relancez-la.
 
 Pour l'enlever : **`Retirer le demarrage automatique.bat`**.
 
@@ -106,8 +105,8 @@ Le numéro de version est affiché en bas de la barre latérale (par exemple « 
 
 Faites ces étapes dans l'ordre la première fois (menu **Paramètres**).
 
-![Paramètres : répertoire racine, sauvegarde et vos coordonnées](images/parametres-haut.jpg)
-*Paramètres : répertoire racine, sauvegarde et vos coordonnées*
+![Paramètres : répertoire racine, emplacements, sauvegarde, corbeille et vos coordonnées](images/parametres-haut.jpg)
+*Paramètres : répertoire racine, emplacements, sauvegarde, corbeille et vos coordonnées*
 
 ![Paramètres : centres partenaires](images/parametres-centres.jpg)
 *Paramètres : centres partenaires*
@@ -338,7 +337,8 @@ Sur la fiche du cours, bouton **🧾 Facture**. L'éditeur affiche les paramètr
 1. **En-tête** — Centre à facturer (celui du cours par défaut ; changer de centre recharge ses tarifs tant que vous n'avez pas modifié les groupes), numéro (suggéré automatiquement : `ANNÉE-001`, `ANNÉE-002`…), date, « Réf. Cours » (préremplie avec le type et les dates, modifiable).
 2. **Groupes de tarification** — Pour chaque groupe : description, **part**, prix unitaire. Le total d'un groupe = nombre d'étudiants × part × prix. La part est proposée à **1 ÷ nombre d'instructeurs** (2 instructeurs → 0,5) ; modifiez le champ « Nb d'instructeurs » (toutes les parts sont recalculées) ou chaque part individuellement. Boutons **+ Groupe**, **↻ Tarifs du centre** (recharge la grille) et ✕ pour retirer un groupe.
 3. **Étudiants** — La liste vient du cours. Affectez chacun à un groupe (au départ, tous sont dans le premier) ; cochez « Lister les noms sous chaque groupe » selon votre préférence.
-4. **Options** — T.P.S./T.V.Q., logo ScubaPilot, étampe, **note libre** (préremplie « Cours … avec [collègue] » quand le cours a plusieurs instructeurs), et **lignes supplémentaires** (frais, ou montant négatif pour un rabais).
+4. **Options** — T.P.S./T.V.Q. (une taxe non cochée n'apparaît pas du tout sur la facture ; sans aucune taxe, la ligne « sous-total » disparaît aussi), logo ScubaPilot, étampe, **note libre** (préremplie « Cours … avec [collègue] » quand le cours a plusieurs instructeurs), **note kilométrage** (texte libre affiché sous la note, sans effet sur le total), et **lignes supplémentaires** (frais, ou montant négatif pour un rabais).
+5. **Suivi de la facture** — voir [9.4](#94-suivi--soumise-et-payée).
 
 Exemple : 6 étudiants « Cours complet » (0,5 × 120 $ = 360 $) et 4 étudiants « Théorie + MP seulement » (0,5 × 70 $ = 140 $) donnent un sous-total de 500 $.
 
@@ -405,6 +405,8 @@ Le logo est le fichier `public/logo.svg`. Pour le remplacer, écrasez ce fichier
 
 ```
 <répertoire racine>/
+  _ScubaPilot/          (vos réglages)
+  _Corbeille/           (cours et étudiants supprimés)
   OWD_03OCT2026/
     course.json
     Photo/
@@ -432,7 +434,7 @@ Le logo est le fichier `public/logo.svg`. Pour le remplacer, écrasez ce fichier
 | `student_fields.json` | Champs du profil étudiant |
 | `email_templates.json` | Modèles d'email |
 | `billing.json` | Devise, taxes, grilles de tarifs, compteur de factures |
-| `stamp.json` | Image de l'étampe (non versionnée dans Git) |
+| `stamp.json` | Image de l'étampe |
 
 ## 13. Sauvegarde
 
@@ -454,6 +456,9 @@ Un cours ou un étudiant supprimé n'est pas effacé : il est déplacé dans le 
 
 La corbeille ne se vide jamais toute seule.
 
+![Paramètres : la corbeille](images/parametres-corbeille.jpg)
+*Paramètres : la corbeille, avec un étudiant et un cours supprimés*
+
 ### Si un fichier est signalé « illisible »
 
 Si une écriture est interrompue (panne, conflit de synchronisation OneDrive), un fichier `course.json` ou `student.json` peut devenir illisible. ScubaPilot l'indique alors par un badge rouge **⚠ Fichier illisible** (tableau de bord) ou **⚠ Fiche illisible** (étudiant) et **refuse toute modification** de ce fichier, pour ne pas écraser son contenu. Vos documents ne sont pas touchés. Pour réparer : dans l'Explorateur, clic droit sur le fichier → **Historique des versions** (OneDrive) et restaurez la version précédente, ou reprenez le fichier d'une sauvegarde ; rechargez ensuite la page.
@@ -473,6 +478,9 @@ Depuis la version 1.8, vos réglages ne sont plus dans le dossier de l'applicati
 ### Emplacements
 
 La carte **Paramètres → Emplacements** indique où se trouvent le dossier de l'application en cours d'exécution, les réglages, la corbeille et le fichier qui mémorise le chemin de la racine. C'est le premier endroit à regarder si l'application ne semble pas à jour : le chemin « Application » montre quelle copie tourne réellement.
+
+![Paramètres : emplacements](images/parametres-emplacements.jpg)
+*Paramètres : emplacements de l'application, des réglages, de la corbeille et du journal*
 
 ### Si le répertoire racine est introuvable
 

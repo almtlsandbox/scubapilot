@@ -899,10 +899,8 @@ app.post('/api/open-explorer', (req, res) => {
 });
 
 // ---------- Sauvegarde (backup) du répertoire racine en .zip ----------
-// Utilise Compress-Archive (PowerShell, inclus dans Windows) plutôt qu'une dépendance npm,
-// pour éviter d'avoir besoin d'accès internet lors de l'installation. Le zip est créé dans un
-// dossier temporaire puis envoyé en téléchargement au navigateur, qui laisse l'instructeur
-// choisir où l'enregistrer (clé USB, cloud, autre disque...).
+// Le zip est créé dans un dossier temporaire (voir plus bas), puis téléchargé par le navigateur,
+// qui laisse l'instructeur choisir où l'enregistrer (clé USB, cloud, autre disque...).
 function backupFileName() {
   const d = new Date();
   const pad = n => String(n).padStart(2, '0');
