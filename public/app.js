@@ -1,61 +1,76 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.9.1';
+const APP_VERSION = '1.10';
 const APP_RELEASE = 'Novembre 2026';
 
-// Lien de rédaction d'un courriel selon la messagerie choisie dans les Paramètres
-// (mailClient : 'default' = mailto, 'gmail', 'outlook'). Voir aussi mailLinkAttrs().
-function mailHref(o) {
-  o = o || {};
-  const e = encodeURIComponent;
-  const mode = (typeof state !== 'undefined' && state.settings && state.settings.mailClient) || 'default';
-  const acct = (typeof state !== 'undefined' && state.settings && state.settings.gmailAccount || '').trim();
-  const to = o.to || '', subject = o.subject || '', body = o.body || '', cc = o.cc || '', bcc = o.bcc || '';
-  if (mode === 'gmail') {
-    let u = 'https://mail.google.com/mail/?view=cm&fs=1';
-    if (acct) u += '&authuser=' + e(acct);
-    if (to) u += '&to=' + e(to);
-    if (cc) u += '&cc=' + e(cc);
-    if (bcc) u += '&bcc=' + e(bcc);
-    if (subject) u += '&su=' + e(subject);
-    if (body) u += '&body=' + e(body);
-    return u;
+// ---------- Courriels : copier-coller ----------
+// ScubaPilot n'ouvre plus de logiciel de messagerie : chaque élément d'un courriel (adresses, objet,
+// message) a un petit bouton 📋 qui le copie, à coller ensuite dans la messagerie de son choix.
+function copyText(text) {
+  text = String(text == null ? '' : text);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => copyTextFallback(text));
   }
-  if (mode === 'outlook') {
-    let u = 'https://outlook.office.com/mail/deeplink/compose?';
-    const q = [];
-    if (to) q.push('to=' + e(to));
-    if (cc) q.push('cc=' + e(cc));
-    if (bcc) q.push('bcc=' + e(bcc));
-    if (subject) q.push('subject=' + e(subject));
-    if (body) q.push('body=' + e(body));
-    return u + q.join('&');
-  }
-  const q = [];
-  if (subject) q.push('subject=' + e(subject));
-  if (body) q.push('body=' + e(body));
-  if (cc) q.push('cc=' + e(cc));
-  if (bcc) q.push('bcc=' + e(bcc));
-  return 'mailto:' + e(to) + (q.length ? '?' + q.join('&') : '');
+  return Promise.resolve(copyTextFallback(text));
 }
-function mailIsWeb() {
-  const m = (state.settings && state.settings.mailClient) || 'default';
-  return m === 'gmail' || m === 'outlook';
+function copyTextFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.left = '-9999px';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); } catch (e) {}
+  ta.remove();
 }
-function mailLabel() {
-  const m = (state.settings && state.settings.mailClient) || 'default';
-  return m === 'gmail' ? 'Ouvrir dans Gmail' : m === 'outlook' ? 'Ouvrir dans Outlook web' : 'Ouvrir dans le client mail';
+// Champ avec bouton « copier » : cf = { id, label, value, area (zone de texte), rows, cls }.
+function copyFieldHtml(cf) {
+  const idAttr = cf.id ? ` id="${cf.id}"` : '';
+  const input = cf.area
+    ? `<textarea${idAttr} class="${cf.cls || ''}" style="min-height:${cf.minHeight || 160}px">${escapeHtml(cf.value || '')}</textarea>`
+    : `<input${idAttr} class="${cf.cls || ''}" value="${escapeHtml(cf.value || '')}">`;
+  return `<div class="copy-field">
+    <div class="copy-field-head"><label${cf.id ? ` for="${cf.id}"` : ''}>${escapeHtml(cf.label)}</label>
+      <button type="button" class="copy-btn" title="Copier : ${escapeHtml(cf.label)}" aria-label="Copier : ${escapeHtml(cf.label)}">📋 <span>Copier</span></button></div>
+    ${input}
+  </div>`;
 }
-// Ouvre le courriel (nouvel onglet pour une messagerie web)
-function openMail(o) {
-  const href = mailHref(o);
-  if (mailIsWeb()) window.open(href, '_blank', 'noopener');
-  else window.location.href = href;
+// Branche tous les boutons « copier » d'un conteneur : copie la valeur ACTUELLE du champ voisin.
+function wireCopyButtons(container) {
+  container.querySelectorAll('.copy-field').forEach(field => {
+    const btn = field.querySelector('.copy-btn');
+    const input = field.querySelector('input, textarea');
+    if (!btn || !input || btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', async () => {
+      if (!input.value.trim()) { toast('Ce champ est vide : rien à copier', true); return; }
+      await copyText(input.value);
+      const span = btn.querySelector('span');
+      btn.classList.add('copied'); span.textContent = 'Copié';
+      setTimeout(() => { btn.classList.remove('copied'); span.textContent = 'Copier'; }, 1600);
+    });
+  });
 }
-// Configure un lien <a> existant
-function applyMailLink(a, o) {
-  a.href = mailHref(o);
-  a.textContent = mailLabel();
-  if (mailIsWeb()) { a.target = '_blank'; a.rel = 'noopener'; } else { a.removeAttribute('target'); a.removeAttribute('rel'); }
+// Fenêtre « courriel à copier » : destinataire, objet et message, chacun avec son bouton copier.
+function showMailModal(o) {
+  const overlay = el(`
+    <div class="modal-overlay">
+      <div class="modal-box modal-wide" role="dialog" aria-modal="true" aria-label="${escapeHtml(o.title || 'Courriel')}">
+        <h3>${escapeHtml(o.title || 'Courriel')}</h3>
+        <p class="muted">Copiez chaque élément avec 📋, puis collez-le dans votre messagerie.</p>
+        ${copyFieldHtml({ label: 'À', value: o.to })}
+        ${copyFieldHtml({ label: 'Objet', value: o.subject })}
+        ${copyFieldHtml({ label: 'Message', value: o.body, area: true, minHeight: 200 })}
+        ${o.note ? `<p class="muted">${escapeHtml(o.note)}</p>` : ''}
+        <div class="actions-inline" style="justify-content:flex-end"><button class="btn secondary" id="mail-modal-close">Fermer</button></div>
+      </div>
+    </div>
+  `);
+  document.body.appendChild(overlay);
+  wireCopyButtons(overlay);
+  const prevFocus = document.activeElement;
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); if (prevFocus && prevFocus.focus) { try { prevFocus.focus(); } catch (e) {} } };
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#mail-modal-close').addEventListener('click', close);
+  setTimeout(() => { const b = overlay.querySelector('.copy-btn'); if (b) b.focus(); }, 0);
 }
 
 const state = { settings: null, courseTypes: [], sites: [], studentFields: [], emailTemplates: [], buddies: [], centers: [], billing: null };
@@ -1178,41 +1193,21 @@ function renderEmailBatch(box, course, type, tpl) {
     const ctx = buildEmailContext(course, type, s);
     return { student: s, subject: mergeTemplate(tpl.subject, ctx), body: mergeTemplate(tpl.body, ctx) };
   });
-  const copyAllBtn = el(`<button class="btn small secondary" style="margin:10px 0 16px">Copier tous les emails (${composed.length})</button>`);
-  copyAllBtn.addEventListener('click', () => {
-    const all = composed.map(c => `À : ${c.student.email}\nObjet : ${c.subject}\n\n${c.body}`).join('\n\n-----------------------------\n\n');
-    navigator.clipboard.writeText(all).then(() => toast('Tous les emails copiés'));
-  });
-  box.appendChild(copyAllBtn);
+  box.appendChild(el(`<p class="muted" style="margin:10px 0">Un message par étudiant. Copiez l'adresse, l'objet et le message avec 📋, puis collez-les dans votre messagerie.</p>`));
   composed.forEach(c => {
     const item = el(`
       <div class="student-block">
-        <div class="student-header">
+        <div class="student-header" style="cursor:default">
           <div><strong>${escapeHtml(c.student.firstName)} ${escapeHtml(c.student.lastName)}</strong></div>
-          <span class="muted">${escapeHtml(c.student.email)}</span>
         </div>
         <div class="student-details open">
-          <label>Sujet</label><input class="em-subject" value="${escapeHtml(c.subject)}">
-          <label>Message</label><textarea class="em-body" style="min-height:140px">${escapeHtml(c.body)}</textarea>
-          <div class="actions-inline">
-            <a class="btn small em-mailto" href="#">Ouvrir dans le client mail</a>
-            <button class="btn small secondary em-copy">Copier ce message</button>
-          </div>
+          ${copyFieldHtml({ label: 'À', value: c.student.email, cls: 'em-to' })}
+          ${copyFieldHtml({ label: 'Objet', value: c.subject, cls: 'em-subject' })}
+          ${copyFieldHtml({ label: 'Message', value: c.body, cls: 'em-body', area: true, minHeight: 140 })}
         </div>
       </div>
     `);
-    const subjInput = item.querySelector('.em-subject');
-    const bodyInput = item.querySelector('.em-body');
-    const mailtoLink = item.querySelector('.em-mailto');
-    const updateMailto = () => {
-      applyMailLink(mailtoLink, { to: c.student.email, subject: subjInput.value, body: bodyInput.value });
-    };
-    updateMailto();
-    subjInput.addEventListener('input', updateMailto);
-    bodyInput.addEventListener('input', updateMailto);
-    item.querySelector('.em-copy').addEventListener('click', () => {
-      navigator.clipboard.writeText('Objet: ' + subjInput.value + '\n\n' + bodyInput.value).then(() => toast('Message copié'));
-    });
+    wireCopyButtons(item);
     box.appendChild(item);
   });
 }
@@ -1237,38 +1232,23 @@ function renderGroupEmail(box, course, type, tpl) {
         <strong>Email groupé — un seul message pour tout le cours</strong>
       </div>
       <div class="student-details open">
-        <p class="muted">Vous en destinataire, CC configurable ci-dessous, étudiants + coéquipiers des séances + BCC par défaut en copie cachée (CCI).</p>
+        <p class="muted">Vous en destinataire, CC configurable ci-dessous, étudiants + coéquipiers des séances + BCC par défaut en copie cachée (CCI). Copiez chaque élément avec 📋, puis collez-le dans votre messagerie.</p>
         <div class="row">
-          <div><label for="grp-to">À (vous)</label><input id="grp-to" value="${escapeHtml(state.settings.instructorEmail || '')}"></div>
-          <div><label for="grp-cc">Cc</label><input id="grp-cc" value="${escapeHtml(state.settings.defaultCc || '')}"></div>
+          <div>${copyFieldHtml({ id: 'grp-to', label: 'À (vous)', value: state.settings.instructorEmail || '' })}</div>
+          <div>${copyFieldHtml({ id: 'grp-cc', label: 'Cc', value: state.settings.defaultCc || '' })}</div>
         </div>
-        <label for="grp-bcc">Cci — séparés par des virgules</label><input id="grp-bcc" value="${escapeHtml(bccList.join(', '))}">
-        <label for="grp-subject">Sujet</label><input id="grp-subject" value="${escapeHtml(subject)}">
-        <label for="grp-body">Message</label><textarea id="grp-body" style="min-height:200px">${escapeHtml(body)}</textarea>
-        <div class="actions-inline">
-          <a class="btn small" id="grp-mailto" href="#">Ouvrir dans le client mail</a>
-          <button class="btn small secondary" id="grp-copy">Copier le message</button>
-        </div>
+        ${copyFieldHtml({ id: 'grp-bcc', label: 'Cci — séparés par des virgules', value: bccList.join(', ') })}
+        ${copyFieldHtml({ id: 'grp-subject', label: 'Objet', value: subject })}
+        ${copyFieldHtml({ id: 'grp-body', label: 'Message', value: body, area: true, minHeight: 200 })}
         <p class="muted" id="grp-warn"></p>
       </div>
     </div>
   `);
   box.appendChild(item);
+  wireCopyButtons(item);
   if (!state.settings.instructorEmail) {
     item.querySelector('#grp-warn').textContent = 'Astuce : renseignez votre email dans Paramètres pour préremplir le champ "À" automatiquement.';
   }
-  const toI = item.querySelector('#grp-to'), ccI = item.querySelector('#grp-cc'), bccI = item.querySelector('#grp-bcc');
-  const subjI = item.querySelector('#grp-subject'), bodyI = item.querySelector('#grp-body');
-  const mailtoLink = item.querySelector('#grp-mailto');
-  const updateMailto = () => {
-    applyMailLink(mailtoLink, { to: toI.value, subject: subjI.value, body: bodyI.value, cc: ccI.value, bcc: bccI.value });
-  };
-  updateMailto();
-  [toI, ccI, bccI, subjI, bodyI].forEach(i => i.addEventListener('input', updateMailto));
-  item.querySelector('#grp-copy').addEventListener('click', () => {
-    const text = `À : ${toI.value}\nCc : ${ccI.value}\nCci : ${bccI.value}\nObjet : ${subjI.value}\n\n${bodyI.value}`;
-    navigator.clipboard.writeText(text).then(() => toast('Message copié'));
-  });
 }
 
 function buildCommunicationsCard(course, type) {
@@ -1290,7 +1270,7 @@ function buildCommunicationsCard(course, type) {
 
   const btnRow = el(`
     <div class="actions-inline">
-      <button class="btn small secondary" id="copy-emails-btn">Copier la liste des emails</button>
+      <button class="btn small secondary" id="copy-emails-btn">📋 Copier la liste des emails</button>
       <button class="btn small" id="gen-group-btn">Un seul email groupé (étudiants en CCI)</button>
       <button class="btn small secondary" id="gen-emails-btn">Un email par étudiant (personnalisé)</button>
     </div>
@@ -1308,7 +1288,7 @@ function buildCommunicationsCard(course, type) {
 
   btnRow.querySelector('#copy-emails-btn').addEventListener('click', () => {
     if (!emails.length) { toast('Aucune adresse email renseignée', true); return; }
-    navigator.clipboard.writeText(emails.join(', ')).then(() => toast('Adresses copiées'));
+    copyText(emails.join(', ')).then(() => toast(`${emails.length} adresse(s) copiée(s)`));
   });
   btnRow.querySelector('#gen-group-btn').addEventListener('click', () => {
     const tpl = state.emailTemplates.find(t => t.id === templateSelect.value);
@@ -1824,8 +1804,8 @@ async function openInvoiceForm(course, type) {
         const c = centerById(inv.centerId), calc = computeInvoice(course, inv);
         const subject = `Facture ${inv.number} — ${inv.ref}`;
         const body = `Bonjour${c && c.contactName ? ' ' + c.contactName : ''},\n\nVeuillez trouver ci-joint la facture ${inv.number} (${inv.ref}), au montant de ${fmtMoney(calc.total)}.\n\nMerci,\n${state.settings.instructorName || ''}`;
-        openMail({ to: (c && c.email) || '', subject, body });
-        toast('Joignez le PDF (Imprimer / PDF) au courriel');
+        showMailModal({ title: 'Courriel au centre', to: (c && c.email) || '', subject, body,
+          note: 'Pensez à joindre la facture en PDF (bouton « Imprimer / PDF », puis « Enregistrer en PDF »).' });
       } catch (e) { toast('Erreur : ' + friendlyError(e), true); }
     }, 'Préparation...'));
 
@@ -2252,8 +2232,6 @@ function buildStudentDetails(course, type, s) {
     mailSubject = mergeTemplate(tpl.subject, ctx);
     mailBody = mergeTemplate(tpl.body, ctx);
   }
-  const mailtoHref = s.email ? mailHref({ to: s.email, subject: mailSubject, body: mailBody }) : '';
-  const mailTarget = mailIsWeb() ? ' target="_blank" rel="noopener"' : '';
 
   wrap.innerHTML = `
     <div class="two-col">
@@ -2264,10 +2242,10 @@ function buildStudentDetails(course, type, s) {
         <div class="actions-inline">
           <button class="btn small secondary" data-act="edit-info">Modifier les infos</button>
           <button class="btn small secondary" data-act="open-folder">📂 Ouvrir le dossier</button>
-          ${s.email ? `<a class="btn small secondary" href="${escapeHtml(mailtoHref)}"${mailTarget}>✉️ Écrire un email</a>` : ''}
+          ${s.email ? `<button class="btn small secondary" data-act="mail">✉️ Email à copier</button>` : ''}
           <button class="btn small danger" data-act="delete-student">Supprimer</button>
         </div>
-        ${!s.email ? '<p class="muted" style="margin-top:6px">Renseignez une adresse email pour pouvoir lui écrire directement.</p>' : ''}
+        ${!s.email ? '<p class="muted" style="margin-top:6px">Renseignez une adresse email pour préparer un message à lui envoyer.</p>' : ''}
         <div class="student-files"></div>
       </div>
       <div>
@@ -2320,6 +2298,11 @@ function buildStudentDetails(course, type, s) {
   ));
 
   wrap.querySelector('[data-act=open-folder]').addEventListener('click', () => openExplorer(course.id, s.folder));
+  const mailBtn = wrap.querySelector('[data-act=mail]');
+  if (mailBtn) mailBtn.addEventListener('click', () => showMailModal({
+    title: `Courriel à ${s.firstName} ${s.lastName}`, to: s.email, subject: mailSubject, body: mailBody,
+    note: tpl ? '' : "Aucun modèle d'email n'est associé à ce cours : choisissez-en un dans l'onglet « Documents & communications » pour préremplir l'objet et le message."
+  }));
   wrap.querySelector('[data-act=delete-student]').addEventListener('click', async () => {
     const ok = await showConfirmModal({
       title: 'Supprimer cet étudiant ?',
@@ -3760,16 +3743,6 @@ function renderSettings() {
       <input id="s-default-cc" value="${escapeHtml(s.defaultCc || '')}">
       <label for="s-default-bcc">CCI (BCC) par défaut pour l'email groupé (séparés par des virgules)</label>
       <input id="s-default-bcc" value="${escapeHtml(s.defaultBcc || '')}">
-      <div class="row">
-        <div><label for="s-mail-client">Messagerie utilisée pour les courriels</label>
-          <select id="s-mail-client">
-            <option value="default"${(s.mailClient || 'default') === 'default' ? ' selected' : ''}>Application par défaut de l'ordinateur</option>
-            <option value="gmail"${s.mailClient === 'gmail' ? ' selected' : ''}>Gmail (navigateur)</option>
-            <option value="outlook"${s.mailClient === 'outlook' ? ' selected' : ''}>Outlook web (navigateur)</option>
-          </select></div>
-        <div><label for="s-gmail-account">Compte Gmail à utiliser (facultatif)</label>
-          <input id="s-gmail-account" type="email" placeholder="vous@gmail.com" value="${escapeHtml(s.gmailAccount || '')}"></div>
-      </div>
       <div class="actions-inline"><button class="btn small" id="s-save-instructor">Enregistrer</button></div>
     </div>
 
@@ -3860,8 +3833,6 @@ function renderSettings() {
     s.instructorPhone = document.getElementById('s-instructor-phone').value;
     s.defaultCc = document.getElementById('s-default-cc').value;
     s.defaultBcc = document.getElementById('s-default-bcc').value;
-    s.mailClient = document.getElementById('s-mail-client').value;
-    s.gmailAccount = document.getElementById('s-gmail-account').value.trim();
     await api('PUT', '/api/settings', s);
     toast('Coordonnées enregistrées');
   });

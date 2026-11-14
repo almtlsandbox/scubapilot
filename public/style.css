@@ -163,3 +163,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .sidebar a:focus-visible { outline-color: #fff; outline-offset: -3px; }
 tr.course-row:focus-visible { outline-offset: -2px; background: #f0f6fa; }
 .student-header:focus-visible { border-radius: 6px; }
+
+/* Courriels à copier-coller : champ + bouton « copier » */
+.copy-field { margin-top: 10px; }
+.copy-field-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.copy-field-head label { margin: 0; }
+.copy-btn { background: #fff; border: 1px solid var(--blue); color: var(--blue); border-radius: 6px; padding: 3px 9px; font-size: 12px; cursor: pointer; white-space: nowrap; line-height: 1.4; }
+.copy-btn:hover { background: #eaf3f9; }
+.copy-btn.copied { background: var(--green); border-color: var(--green); color: #fff; }
+.copy-field input, .copy-field textarea { margin-top: 4px; }
+.modal-box.modal-wide { max-width: 640px; max-height: 92vh; overflow-y: auto; }

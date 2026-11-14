@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.9.1 — Novembre 2026**
+**Version 1.10 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -212,7 +212,7 @@ Dépliez l'étudiant pour voir :
 - ses **coordonnées**, son **âge** calculé à partir de la date de naissance, et son **statut** : *Cours seulement*, *Certification* ou *Cours + Certification* (les libellés sont modifiables dans Paramètres) ;
 - un badge **⚠ Infos incomplètes** s'il manque un téléphone, un courriel ou une date de naissance (survolez le badge pour voir quoi) ;
 - la **checklist pré-cours et post-cours** : cochez les cases au fur et à mesure (vous pouvez enchaîner les clics sans rechargement). Une date est enregistrée à chaque réception ;
-- la zone de **dépôt de fichiers**, le bouton **📂 Ouvrir dans l'Explorateur** et le bouton **✉️ Écrire un email** ;
+- la zone de **dépôt de fichiers**, le bouton **📂 Ouvrir dans l'Explorateur** et le bouton **✉️ Email à copier** ;
 - une zone **Notes** : texte libre propre à cet étudiant pour ce cours (observations, appréhensions, allergies, rappels à faire…). Elle s'enregistre automatiquement après une courte pause de frappe ou quand vous quittez le champ (indication « ✓ Enregistré »). Un badge **📝 Note** apparaît dans l'en-tête de l'étudiant dès qu'une note existe ; la note figure aussi sur le **rapport de cours** et dans l'**historique de la fiche globale** ;
 - la section **Certification** ou **Transfert de dossier** (voir [section 8](#8-certification-et-transfert-de-dossier)) ;
 - le lien **fiche globale**.
@@ -267,14 +267,19 @@ Vous pouvez aussi déposer vos scans directement dans les dossiers via l'Explora
 
 ## 7. Communications (emails)
 
-L'application n'envoie pas de courriel elle-même : elle prépare le message et ouvre votre client de messagerie (ou vous permet de copier le texte).
+L'application n'envoie pas de courriel elle-même et n'ouvre aucun logiciel de messagerie : elle **prépare** le message, et vous le **copiez-collez** dans la messagerie de votre choix (Gmail, Outlook...). Chaque élément du courriel (adresses, objet, message) a son bouton **📋 Copier**, qui passe au vert « Copié » une fois le texte dans le presse-papiers. Vous pouvez retoucher un champ avant de le copier : c'est le texte affiché qui est copié.
 
 ### 7.1 Deux façons d'écrire
 
 - **Un email groupé** : un seul message, adressé à vous-même (« À »), avec un CC configurable (ex. le centre) et en **copie cachée** : tous les étudiants du cours, les coéquipiers des séances et votre BCC par défaut. Comme le message n'est pas personnalisé, `{prenom}`, `{nom}` et `{liste_docs_manquants}` restent vides : préférez `{liste_etudiants}`.
-- **Un email par étudiant** : un message distinct avec ses documents manquants. Utile pour les relances. Le bouton **✉️ Écrire un email** de la fiche d'un étudiant ouvre aussi un message déjà adressé (et rédigé si le cours a un modèle associé).
+- **Un email par étudiant** : un message distinct avec ses documents manquants, chacun avec ses boutons 📋 pour l'adresse, l'objet et le message. Utile pour les relances. Le bouton **✉️ Email à copier** de la fiche d'un étudiant ouvre la même chose pour un seul étudiant (objet et message préremplis si le cours a un modèle associé).
 
-Des boutons permettent de copier une adresse, toutes les adresses ou tous les messages d'un coup.
+Le bouton **📋 Copier la liste des emails** copie d'un coup les adresses de tous les étudiants du cours, séparées par des virgules.
+
+Pour l'email groupé, l'ordre habituel est : copier le champ **Cci** et le coller dans le champ Cci de votre messagerie, puis l'**objet**, puis le **message**.
+
+![L'email groupé : chaque champ a son bouton Copier](images/courriel-groupe.jpg)
+*L'email groupé : chaque champ a son bouton « Copier »*
 
 ### 7.2 Modèles d'email
 
@@ -346,7 +351,7 @@ Exemple : 6 étudiants « Cours complet » (0,5 × 120 $ = 360 $) et 4 étudiant
 
 - **Enregistrer le brouillon** : conserve la facture avec le cours ; vous pouvez la rouvrir et la modifier.
 - **Imprimer / PDF** : enregistre puis ouvre la facture (format Letter) dans un nouvel onglet. Cliquez sur « Imprimer / Enregistrer en PDF » et choisissez **Enregistrer en PDF** comme imprimante. Si rien ne s'ouvre, autorisez les popups pour `localhost`.
-- **Courriel au centre** : ouvre un courriel adressé au centre, objet et message prêts. **Joignez-y le PDF** produit à l'étape précédente.
+- **Courriel au centre** : affiche l'adresse du centre, l'objet et le message prêts à copier (boutons 📋). **Joignez-y le PDF** produit à l'étape précédente.
 
 ![La facture imprimée (format Letter)](images/facture-imprimee.jpg)
 *La facture imprimée (format Letter)*
@@ -373,7 +378,7 @@ Décochez une case pour effacer sa date. Ces changements **s'enregistrent automa
 | Carte | Contenu |
 |---|---|
 | Répertoire racine | Dossier où sont rangés cours et documents |
-| Vos coordonnées | Nom, PADI, adresse, téléphone, courriel, CC et BCC par défaut, **messagerie utilisée** (application par défaut, Gmail ou Outlook web, avec compte Gmail facultatif) |
+| Vos coordonnées | Nom, PADI, adresse, téléphone, courriel, CC et BCC par défaut |
 | Centres partenaires | Centres qui vous mandatent (obligatoires pour créer un cours) |
 | Facturation | Devise, taxes, pied de page, étampe, grilles de tarifs |
 | Coéquipiers | Collègues et instructeurs (courriel, rôle) |
