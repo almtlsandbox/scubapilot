@@ -381,9 +381,19 @@ app.get('/api/app-info', (req, res) => {
     version, installDir: __dirname, rootDir, localFile: LOCAL_FILE,
     configDir: rootDir ? path.join(rootDir, CONFIG_DIRNAME) : DATA_DIR,
     trashDir: rootDir ? path.join(rootDir, TRASH_DIRNAME) : '',
+    logFile: path.join(__dirname, 'app.log'), pid: process.pid, app: 'ScubaPilot',
     rootMissing: !!rootDir && !fs.existsSync(rootDir)
   });
 });
+// Arrêt propre, demandé par le lanceur (launcher.js) quand une autre copie doit prendre la place.
+// L'en-tête exigé ne peut pas être envoyé par une page web d'un autre site : seul un programme local le peut.
+app.post('/api/shutdown', (req, res) => {
+  if (req.headers['x-scubapilot-launcher'] !== '1') return res.status(403).json({ error: 'FORBIDDEN' });
+  res.json({ ok: true });
+  console.log(`[${new Date().toISOString()}] Arrêt demandé par le lanceur.`);
+  setTimeout(() => process.exit(0), 150);
+});
+
 // Importe les réglages d'une ancienne installation (son dossier « data », ou le dossier de
 // l'application lui-même, ou un dossier de réglages tiré d'une sauvegarde). Les réglages actuels
 // sont d'abord mis de côté dans _ScubaPilot/_avant-import-<date>/ : l'import est réversible.
@@ -791,7 +801,8 @@ app.get('/api/global-students', (req, res) => {
 
 // Évite d'écraser un fichier existant : ajoute " (2)", " (3)"... avant l'extension si besoin.
 function uniqueFileName(folder, name) {
-  const clean = sanitize(name) || 'document';
+  // On ne garde que le nom du fichier (sans chemin éventuel), nettoyé, sans points en tête.
+  const clean = sanitize(String(name || '').split(/[\\/]/).pop()).replace(/^\.+/, '') || 'document';
   const ext = path.extname(clean);
   const base = clean.slice(0, clean.length - ext.length);
   let candidate = clean, n = 2;
@@ -802,53 +813,68 @@ function uniqueFileName(folder, name) {
   return candidate;
 }
 
-// ---------- Glisser-déposer : copie un document dans le dossier du cours (documents généraux) ----------
+// ---------- Glisser-déposer : réception d'un fichier ----------
+// Le navigateur envoie le fichier brut (application/octet-stream), avec son nom dans ?filename=.
+// Il est écrit en flux dans un fichier temporaire voisin, puis renommé : aucune limite de taille
+// liée à la mémoire, et jamais de fichier à moitié copié sous son nom définitif.
+// (L'ancien format, JSON + base64, reste accepté.)
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024; // 8 Go : garde-fou, pas une limite technique
+function receiveUpload(req, res, folder) {
+  const legacy = req.body && typeof req.body === 'object' && req.body.dataBase64;
+  const filename = legacy ? req.body.filename : req.query.filename;
+  if (!filename) return res.status(400).json({ error: 'MISSING_FIELDS' });
+  if (legacy) {
+    const finalName = uniqueFileName(folder, filename);
+    fs.writeFileSync(path.join(folder, finalName), Buffer.from(req.body.dataBase64, 'base64'));
+    return res.json({ ok: true, filename: finalName });
+  }
+  if (Number(req.headers['content-length'] || 0) > MAX_UPLOAD_BYTES) return res.status(413).json({ error: 'FILE_TOO_LARGE' });
+  const tmp = path.join(folder, `envoi-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.tmp`);
+  const out = fs.createWriteStream(tmp);
+  let received = 0, finished = false;
+  const abort = (status, error) => {
+    if (finished) return; finished = true;
+    req.unpipe(out); out.destroy();
+    fs.unlink(tmp, () => {});
+    if (!res.headersSent) res.status(status).json({ error });
+  };
+  req.on('data', chunk => { received += chunk.length; if (received > MAX_UPLOAD_BYTES) abort(413, 'FILE_TOO_LARGE'); });
+  req.on('aborted', () => abort(400, 'UPLOAD_ABORTED'));   // envoi interrompu (onglet fermé, réseau)
+  req.on('error', () => abort(400, 'UPLOAD_ABORTED'));
+  out.on('error', e => abort(500, e.code === 'ENOSPC' ? 'DISK_FULL' : (e.code || 'WRITE_ERROR')));
+  out.on('finish', () => {
+    if (finished) return; finished = true;
+    try {
+      const finalName = uniqueFileName(folder, filename);
+      fs.renameSync(tmp, path.join(folder, finalName));
+      res.json({ ok: true, filename: finalName, size: received });
+    } catch (e) { fs.unlink(tmp, () => {}); res.status(500).json({ error: e.code || e.message }); }
+  });
+  req.pipe(out);
+}
+// Documents généraux du cours
 app.post('/api/courses/:id/upload', (req, res) => {
   try {
-    const root = getRoot();
-    const cFolder = path.join(root, req.params.id);
+    const cFolder = path.join(getRoot(), req.params.id);
     if (!fs.existsSync(path.join(cFolder, 'course.json'))) return res.status(404).json({ error: 'NOT_FOUND' });
-    const { filename, dataBase64 } = req.body || {};
-    if (!filename || !dataBase64) return res.status(400).json({ error: 'MISSING_FIELDS' });
-    const finalName = uniqueFileName(cFolder, filename);
-    fs.writeFileSync(path.join(cFolder, finalName), Buffer.from(dataBase64, 'base64'));
-    res.json({ ok: true, filename: finalName });
-  } catch (e) {
-    fail(res, e);
-  }
+    receiveUpload(req, res, cFolder);
+  } catch (e) { fail(res, e); }
 });
-
-// ---------- Glisser-déposer : copie une photo dans le sous-dossier "Photo" du cours ----------
+// Photos du cours (sous-dossier « Photo »)
 app.post('/api/courses/:id/photos/upload', (req, res) => {
   try {
-    const root = getRoot();
-    const cFolder = path.join(root, req.params.id);
+    const cFolder = path.join(getRoot(), req.params.id);
     if (!fs.existsSync(path.join(cFolder, 'course.json'))) return res.status(404).json({ error: 'NOT_FOUND' });
-    const photoDir = ensurePhotoDir(cFolder);
-    const { filename, dataBase64 } = req.body || {};
-    if (!filename || !dataBase64) return res.status(400).json({ error: 'MISSING_FIELDS' });
-    const finalName = uniqueFileName(photoDir, filename);
-    fs.writeFileSync(path.join(photoDir, finalName), Buffer.from(dataBase64, 'base64'));
-    res.json({ ok: true, filename: finalName });
-  } catch (e) {
-    fail(res, e);
-  }
+    receiveUpload(req, res, ensurePhotoDir(cFolder));
+  } catch (e) { fail(res, e); }
 });
-
-// ---------- Glisser-déposer : copie un document dans le dossier d'un étudiant ----------
+// Documents d'un étudiant
 app.post('/api/courses/:id/students/:folder/upload', (req, res) => {
   try {
-    const root = getRoot();
-    const sFolder = path.join(root, req.params.id, req.params.folder);
+    const sFolder = path.join(getRoot(), req.params.id, req.params.folder);
     if (!fs.existsSync(path.join(sFolder, 'student.json'))) return res.status(404).json({ error: 'NOT_FOUND' });
-    const { filename, dataBase64 } = req.body || {};
-    if (!filename || !dataBase64) return res.status(400).json({ error: 'MISSING_FIELDS' });
-    const finalName = uniqueFileName(sFolder, filename);
-    fs.writeFileSync(path.join(sFolder, finalName), Buffer.from(dataBase64, 'base64'));
-    res.json({ ok: true, filename: finalName });
-  } catch (e) {
-    fail(res, e);
-  }
+    receiveUpload(req, res, sFolder);
+  } catch (e) { fail(res, e); }
 });
 
 // ---------- Ouvrir dans l'Explorateur Windows ----------
@@ -883,46 +909,66 @@ function backupFileName() {
   const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
   return `PLONGEE_BACKUP_${stamp}.zip`;
 }
+// La sauvegarde est créée en tâche de fond par zipwriter.js (Node pur : pas de PowerShell, pas de
+// limite de 2 Go). Le navigateur suit l'avancement, puis télécharge le zip directement sur le disque
+// (GET), sans le charger en mémoire.
+const { createZip } = require('./zipwriter');
+let backupJob = null; // { id, state: 'running'|'done'|'error', filename, zipPath, progress, result, error }
+function cleanupBackup(job) { if (job && job.zipPath) { try { fs.unlinkSync(job.zipPath); } catch (e) {} } }
+function publicBackupJob(job) {
+  if (!job) return { state: 'none' };
+  const p = job.progress || {};
+  return { id: job.id, state: job.state, filename: job.filename, error: job.error || '',
+    filesDone: p.filesDone || 0, filesTotal: p.filesTotal || 0, bytesDone: p.bytesDone || 0, bytesTotal: p.bytesTotal || 0,
+    zipBytes: job.result ? job.result.zipBytes : 0, skipped: job.result ? job.result.skipped : [] };
+}
 app.post('/api/backup', (req, res) => {
   let root;
   try { root = getRoot(); }
   catch (e) { return fail(res, e); }
+  if (backupJob && backupJob.state === 'running') return res.json(publicBackupJob(backupJob));
   let hasContent = false;
   try { hasContent = fs.readdirSync(root).length > 0; } catch (e) {}
   if (!hasContent) return res.status(400).json({ error: 'ROOT_EMPTY' });
 
-  const filename = backupFileName();
-  const zipPath = path.join(os.tmpdir(), filename);
-  try { fs.unlinkSync(zipPath); } catch (e) {}
-
-  // Les réglages vivent dans <racine>/_ScubaPilot/ : ils sont donc dans le zip, comme la corbeille.
+  cleanupBackup(backupJob); // zip d'une sauvegarde précédente jamais téléchargée
   try { configDir(); } catch (e) {}
-  const escapeForPs = s => s.replace(/'/g, "''");
-  const psCommand = `Compress-Archive -Path '${escapeForPs(root)}\\*' -DestinationPath '${escapeForPs(zipPath)}' -Force -CompressionLevel Optimal`;
-
-  execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCommand],
-    { maxBuffer: 1024 * 1024 * 20, timeout: 10 * 60 * 1000 },
-    (err, stdout, stderr) => {
-      if (err) {
-        return res.status(500).json({ error: 'BACKUP_FAILED', details: (stderr || err.message || '').toString().slice(0, 2000) });
-      }
-      res.download(zipPath, filename, (downloadErr) => {
-        fs.unlink(zipPath, () => {});
-        if (downloadErr && !res.headersSent) {
-          res.status(500).json({ error: 'DOWNLOAD_FAILED', details: downloadErr.message });
-        }
-      });
-    });
+  const filename = backupFileName();
+  const job = backupJob = { id: trashStamp(), state: 'running', filename, progress: {},
+    zipPath: path.join(os.tmpdir(), `scubapilot-${process.pid}-${Date.now()}.zip`) };
+  createZip(job.zipPath, root, {
+    skip: (abs, d) => d.isFile() && d.name.endsWith('.tmp'),
+    onProgress: p => { job.progress = { ...p }; }
+  }).then(result => { job.result = result; job.state = 'done'; },
+          err => { job.error = (err && (err.code || err.message)) || 'ERREUR'; job.state = 'error'; cleanupBackup(job); });
+  res.json(publicBackupJob(job));
+});
+app.get('/api/backup/status', (req, res) => res.json(publicBackupJob(backupJob)));
+app.get('/api/backup/download/:tid', (req, res) => {
+  const job = backupJob;
+  if (!job || job.id !== req.params.tid || job.state !== 'done' || !fs.existsSync(job.zipPath)) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.download(job.zipPath, job.filename, () => {
+    // Le zip temporaire est retiré une fois envoyé (ou si l'envoi a échoué : il suffira de relancer).
+    cleanupBackup(job);
+    if (backupJob === job) backupJob = null;
+  });
 });
 
 app.get('/api/utils/format-date', (req, res) => res.json({ human: fmtDateHuman(req.query.d) }));
+
+let APP_VERSION = '';
+try { APP_VERSION = require('./package.json').version; } catch (e) {}
+// Une erreur imprévue dans une requête ne doit pas arrêter le programme (il tourne en arrière-plan,
+// sans fenêtre : personne ne le verrait s'arrêter). On la note dans le journal et on continue.
+process.on('uncaughtException', e => console.error(`[${new Date().toISOString()}] Erreur imprévue :`, e && e.stack || e));
+process.on('unhandledRejection', e => console.error(`[${new Date().toISOString()}] Erreur imprévue (promesse) :`, e && e.stack || e));
 
 // Au démarrage : reprise du chemin de la racine et migration des réglages vers <racine>/_ScubaPilot/.
 try { configDir(); } catch (e) { /* racine absente ou pas encore choisie : l'interface le signalera */ }
 
 const server = app.listen(PORT, HOST, () => {
   console.log('=================================================');
-  console.log('  ScubaPilot');
+  console.log(`  ScubaPilot ${APP_VERSION} — démarré le ${new Date().toLocaleString('fr-CA')}`);
   console.log(`  Ouvrez votre navigateur sur : http://localhost:${PORT}`);
   console.log(`  Application : ${__dirname}`);
   console.log(`  Racine      : ${getRootOrEmpty() || '(à choisir)'}`);

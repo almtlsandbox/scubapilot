@@ -74,19 +74,33 @@ Le dépôt est privé : Git vous demandera de vous connecter à votre compte Git
 
 ## 3. Lancer et arrêter l'application
 
-### Option A — manuellement
+### Lancer
 
-Double-cliquez sur **`Lancer (avec fenetre).bat`**. Une fenêtre noire s'ouvre (**laissez-la ouverte** pendant que vous travaillez) et votre navigateur s'ouvre sur l'application. Pour quitter, fermez la fenêtre noire.
+Double-cliquez sur **`Lancer ScubaPilot.bat`**. ScubaPilot démarre en arrière-plan (sans fenêtre à garder ouverte) et votre navigateur s'ouvre sur l'application. Au premier lancement après une installation ou une mise à jour, ce fichier installe aussi les composants nécessaires (`npm install`), ce qui demande une connexion Internet.
 
-### Option B — démarrage automatique et silencieux
+- **Une seule copie à la fois.** Si ScubaPilot tourne déjà, le lancement ouvre simplement la page.
+- **C'est toujours la copie que vous lancez qui tourne.** Si une autre copie est en marche (un ancien dossier, ou l'ancienne version restée en mémoire après une mise à jour), elle est arrêtée et remplacée, et un message vous le signale.
+- Si le port 4531 est pris par un autre programme, un message clair l'indique.
 
-1. `Win + R`, tapez `shell:startup`, Entrée : le dossier « Démarrage » de Windows s'ouvre.
-2. Dans le dossier de l'application, faites un clic droit sur **`Demarrage-automatique.vbs`** → **Créer un raccourci**, puis déplacez ce raccourci dans le dossier « Démarrage ».
-3. À chaque ouverture de session, l'application démarre sans fenêtre. Ouvrez simplement `http://localhost:4531` dans votre navigateur (ajoutez-le aux favoris ou créez un raccourci sur le bureau).
-4. Pour l'arrêter (par exemple avant une mise à jour) : double-cliquez sur **`Arreter.bat`**.
-5. En cas de souci, consultez le fichier `app.log` créé dans le dossier de l'application.
+L'ancien fichier `Lancer (avec fenetre).bat` est conservé pour vos raccourcis existants : il fait la même chose.
 
-Le numéro de version est affiché en bas de la barre latérale (« ScubaPilot v1.4 »).
+### Démarrage automatique à l'ouverture de session
+
+Double-cliquez sur **`Installer le demarrage automatique.bat`**. Un raccourci « ScubaPilot » est créé dans le dossier « Démarrage » de Windows ; tout ancien raccourci de ScubaPilot (y compris vers `Demarrage-automatique.vbs`, même depuis un autre dossier) est retiré. À chaque ouverture de session, l'application démarre sans fenêtre ; ouvrez simplement `http://localhost:4531` (ajoutez-le aux favoris).
+
+Pour l'enlever : **`Retirer le demarrage automatique.bat`**.
+
+> `Demarrage-automatique.vbs` reste présent pour les anciens raccourcis, mais VBScript est en cours de retrait de Windows : passez au nouveau raccourci avec le fichier ci-dessus.
+
+### Arrêter
+
+Double-cliquez sur **`Arreter.bat`** (par exemple avant une mise à jour).
+
+### Journal
+
+En cas de souci, consultez `app.log` dans le dossier de l'application (son chemin est rappelé dans **Paramètres → Emplacements**). Il est archivé en `app.log.1` quand il dépasse 1 Mo.
+
+Le numéro de version est affiché en bas de la barre latérale (par exemple « ScubaPilot v1.9 »).
 
 ## 4. Configuration initiale (premiers pas)
 
@@ -422,7 +436,7 @@ Le logo est le fichier `public/logo.svg`. Pour le remplacer, écrasez ce fichier
 
 ## 13. Sauvegarde
 
-Paramètres → carte **Sauvegarde** → bouton de création. L'application crée un .zip de tout le répertoire racine et vous laisse choisir où l'enregistrer (clé USB, disque externe...). Ce zip contient **tout** :
+Paramètres → carte **Sauvegarde** → bouton de création. L'application crée un .zip de tout le répertoire racine, affiche l'avancement (fichiers et volume), puis le navigateur le télécharge. Si un fichier n'a pas pu être lu (verrouillé, ou seulement en ligne et impossible à télécharger), il est listé en rouge à la fin : il n'est pas dans la sauvegarde. Ce zip contient **tout** :
 
 - vos cours, étudiants, documents et photos ;
 - vos **réglages** (dossier `_ScubaPilot` : centres, tarifs, modèles d'email, types de cours, sites, étampe, coordonnées) ;
@@ -450,10 +464,9 @@ Conseil : sauvegardez avant toute suppression de cours et avant chaque mise à j
 
 Depuis la version 1.8, vos réglages ne sont plus dans le dossier de l'application : ils sont rangés avec vos cours, dans le dossier `_ScubaPilot` du répertoire racine. Le chemin du répertoire racine, lui, est mémorisé dans votre profil Windows. Une mise à jour se résume donc à remplacer le dossier de l'application :
 
-1. Fermez l'application (`Arreter.bat`).
-2. **Remplacez tout le dossier de l'application** par le nouveau (au même endroit, pour que le raccourci de démarrage reste valable).
-3. Si `package.json` a changé, relancez `npm install` dans le dossier.
-4. Relancez l'application et rechargez la page (`Ctrl + F5`). Vérifiez le numéro de version en bas de la barre latérale, ou dans **Paramètres → Emplacements**.
+1. **Remplacez tout le dossier de l'application** par le nouveau (au même endroit, pour que le raccourci de démarrage reste valable). Si Windows refuse parce que des fichiers sont utilisés, lancez d'abord `Arreter.bat`.
+2. Double-cliquez sur **`Lancer ScubaPilot.bat`** : il installe les composants si besoin, arrête l'ancienne version si elle tournait encore, et démarre la nouvelle.
+3. Rechargez la page (`Ctrl + F5`). Vérifiez le numéro de version en bas de la barre latérale, ou dans **Paramètres → Emplacements**.
 
 **Première mise à jour vers la 1.8 (une seule fois)** : recopiez encore votre ancien dossier `data` dans le nouveau dossier avant de lancer l'application. Au démarrage, elle déplace elle-même vos réglages vers le répertoire racine. Si vous avez oublié cette étape et que vos centres ou tarifs ont disparu : **Paramètres → Emplacements → Importer les réglages d'une ancienne installation**, puis indiquez l'ancien dossier de l'application.
 
@@ -467,13 +480,13 @@ Si OneDrive n'a pas fini de démarrer, si un disque n'est pas branché ou si le 
 
 ## 15. Dépannage
 
-**La page ne s'ouvre pas à `localhost:4531`.** L'application n'est pas démarrée : lancez `Lancer (avec fenetre).bat` ou vérifiez que la fenêtre noire est toujours ouverte. Avec le démarrage automatique, consultez `app.log`.
+**La page ne s'ouvre pas à `localhost:4531`.** L'application n'est pas démarrée : lancez `Lancer ScubaPilot.bat` et lisez le message affiché. Avec le démarrage automatique, consultez `app.log`.
 
 **« node n'est pas reconnu… »** Node.js n'est pas installé ou la session doit être rouverte : réinstallez Node.js puis rouvrez l'invite de commande.
 
 **« Cannot find module 'express' ».** Les dépendances ne sont pas installées : exécutez `npm install` dans le dossier de l'application.
 
-**Le port 4531 est déjà utilisé.** L'application tourne peut-être déjà : double-cliquez sur `Arreter.bat`, puis relancez-la.
+**Le port 4531 est déjà utilisé.** Si c'est par ScubaPilot, `Lancer ScubaPilot.bat` s'en occupe tout seul. Si c'est par un autre programme, le message de lancement le dit : fermez ce programme ou redémarrez l'ordinateur.
 
 **Après une mise à jour, je ne vois pas les nouveautés.** Rechargez sans cache (`Ctrl + F5`). Vérifiez que `public/` a bien été remplacé en entier et que le numéro de version en bas de la barre latérale est le bon.
 
@@ -499,6 +512,7 @@ Si OneDrive n'a pas fini de démarrer, si un disque n'est pas branché ou si le 
 - **Accès limité à cet ordinateur** (depuis la version 1.7) : le serveur n'écoute que sur `127.0.0.1` et refuse les requêtes venant d'un autre appareil du réseau. L'application n'ayant pas de mot de passe, c'est ce qui protège vos dossiers sur un Wi-Fi partagé.
 - Les fichiers de données sont écrits de façon atomique (fichier temporaire puis renommage) : une coupure laisse l'ancienne version intacte.
 - Interface en JavaScript pur (sans framework), données en fichiers JSON : aucune base de données à installer.
-- Le bouton « Ouvrir dans l'Explorateur » utilise la commande Windows `explorer` ; la sauvegarde utilise `Compress-Archive` (PowerShell). Sous macOS ou Linux, ces deux fonctions sont à adapter.
+- Le bouton « Ouvrir dans l'Explorateur » utilise la commande Windows `explorer`. La sauvegarde est écrite par l'application elle-même (format zip standard, ZIP64 au-delà de 4 Go) : plus de PowerShell ni de limite de 2 Go.
+- Les fichiers déposés sont copiés en flux : il n'y a plus de limite pratique de taille (garde-fou à 8 Go par fichier), avec un pourcentage d'avancement pour les gros fichiers.
 - Les fichiers statiques sont servis sans cache, et les scripts sont référencés avec un numéro de version pour éviter les anciennes copies.
 - Code source : <https://github.com/almtlsandbox/scubapilot> (dépôt privé).

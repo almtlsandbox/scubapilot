@@ -1,6 +1,3 @@
 @echo off
-cd /d "%~dp0"
-echo Demarrage de l'application...
-start "" http://localhost:4531
-node server.js
-pause
+rem Ancien nom conserve pour les raccourcis existants : fait la meme chose que "Lancer ScubaPilot.bat".
+call "%~dp0Lancer ScubaPilot.bat"

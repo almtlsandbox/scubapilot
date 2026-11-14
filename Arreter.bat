@@ -1,13 +1,10 @@
 @echo off
-echo Recherche du serveur sur le port 4531...
-set FOUND=0
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :4531 ^| findstr LISTENING') do (
-    taskkill /F /PID %%a >nul 2>&1
-    set FOUND=1
+cd /d "%~dp0"
+where node >nul 2>&1
+if errorlevel 1 (
+    echo Node.js est introuvable. Installez Node.js depuis https://nodejs.org puis relancez.
+    pause
+    exit /b 1
 )
-if "%FOUND%"=="1" (
-    echo Application arretee.
-) else (
-    echo Aucune application en cours d'execution sur le port 4531.
-)
+node launcher.js --stop
 pause

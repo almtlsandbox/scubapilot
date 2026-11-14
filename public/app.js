@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.9';
 const APP_RELEASE = 'Novembre 2026';
 
 // Lien de rédaction d'un courriel selon la messagerie choisie dans les Paramètres
@@ -82,6 +82,9 @@ function friendlyError(e) {
     return `Un fichier de données est illisible${f}. Rien n'a été modifié, pour ne pas écraser son contenu. Restaurez une version précédente du fichier (clic droit sur le fichier → Historique des versions dans OneDrive) ou depuis une sauvegarde, puis rechargez la page.`;
   }
   if (raw === 'INVALID_PATH') return "Nom de dossier invalide : l'opération a été refusée.";
+  if (raw === 'FILE_TOO_LARGE') return 'Fichier trop volumineux (plus de 8 Go).';
+  if (raw === 'DISK_FULL') return "Le disque est plein : le fichier n'a pas été copié.";
+  if (raw === 'UPLOAD_ABORTED') return "L'envoi a été interrompu : le fichier n'a pas été copié.";
   if (raw === 'ROOT_NOT_FOUND') return `Le répertoire racine est introuvable${e.data && e.data.rootDir ? ' (' + e.data.rootDir + ')' : ''}. Vérifiez que OneDrive (ou le disque) est bien disponible.`;
   if (raw === 'COURSE_EXISTS') return 'Un cours portant ce nom existe déjà : opération impossible.';
   if (raw === 'COURSE_NOT_FOUND') return "Le cours de cet étudiant n'existe plus : restaurez d'abord le cours depuis la corbeille.";
@@ -91,7 +94,7 @@ function friendlyError(e) {
   if (raw === 'IMPORT_NOTHING_FOUND') return "Aucun fichier de réglages trouvé dans ce dossier. Indiquez l'ancien dossier de l'application ou son sous-dossier « data ».";
   if (raw === 'IMPORT_SAME_DIR') return 'Ce dossier est déjà celui des réglages en cours.';
   if (raw === 'NOT_A_COURSE' || raw === 'NOT_A_STUDENT') return "Ce dossier n'est pas un cours ou un étudiant géré par ScubaPilot : il n'a pas été supprimé.";
-  if (e instanceof TypeError && /fetch|network/i.test(raw)) return "ScubaPilot ne répond pas : le programme est arrêté. Relancez-le (« Lancer (avec fenetre).bat »), puis rechargez la page.";
+  if (e instanceof TypeError && /fetch|network/i.test(raw)) return "ScubaPilot ne répond pas : le programme est arrêté. Relancez-le (« Lancer ScubaPilot.bat »), puis rechargez la page.";
   if (/^[A-Z0-9_]+$/.test(raw)) return `Une erreur est survenue (code : ${raw}). Réessayez.`;
   return raw;
 }
@@ -180,22 +183,36 @@ function courseInstructors(course) {
   return (course.instructorIds || []).map(id => buddyById(id)).filter(Boolean);
 }
 
-// Lit un fichier <input type=file> ou déposé (drag&drop) et renvoie {filename, dataBase64}.
-function fileToBase64(file) {
+// Taille lisible : 1,4 Mo, 2,31 Go...
+function fmtBytes(n) {
+  n = Number(n) || 0;
+  const units = ['o', 'Ko', 'Mo', 'Go', 'To'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return (i === 0 ? String(n) : n.toFixed(n >= 100 ? 0 : (n >= 10 ? 1 : 2)).replace('.', ',')) + ' ' + units[i];
+}
+// Envoie un fichier tel quel (en flux, sans le charger en mémoire) : pas de limite de taille pratique.
+// onProgress(fraction 0..1) est appelé pendant l'envoi.
+function uploadFile(uploadUrl, file, onProgress) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result || '';
-      const comma = result.indexOf(',');
-      resolve({ filename: file.name, dataBase64: comma > -1 ? result.slice(comma + 1) : result });
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', uploadUrl + (uploadUrl.includes('?') ? '&' : '?') + 'filename=' + encodeURIComponent(file.name));
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = e => { if (onProgress && e.lengthComputable && e.total) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText || '{}'); } catch (e) {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(Object.assign(new Error(data.error || 'ERROR'), { data }));
     };
-    reader.onerror = () => reject(reader.error || new Error('READ_ERROR'));
-    reader.readAsDataURL(file);
+    xhr.onerror = () => reject(new TypeError('Failed to fetch'));
+    xhr.onabort = () => reject(new Error('UPLOAD_ABORTED'));
+    xhr.send(file);
   });
 }
 
 // Construit une zone de glisser-déposer générique qui envoie chaque fichier déposé (ou choisi via
-// le sélecteur) à uploadUrl en base64, puis rafraîchit la liste de fichiers affichée sans recharger
+// le sélecteur) à uploadUrl (en flux, avec progression), puis rafraîchit la liste de fichiers affichée sans recharger
 // toute la page (même principe que les checklists : pas de route() systématique).
 function buildDropZone(uploadUrl, initialFiles, label) {
   const wrap = el(`
@@ -223,10 +240,12 @@ function buildDropZone(uploadUrl, initialFiles, label) {
     if (!list.length) return;
     zone.classList.add('busy');
     let okCount = 0;
-    for (const f of list) {
+    for (let i = 0; i < list.length; i++) {
+      const f = list[i];
+      const prefix = (list.length > 1 ? `(${i + 1}/${list.length}) ` : '') + `Copie de « ${f.name} » (${fmtBytes(f.size)})`;
+      filesBox.textContent = prefix + '...';
       try {
-        const { filename, dataBase64 } = await fileToBase64(f);
-        const r = await api('POST', uploadUrl, { filename, dataBase64 });
+        const r = await uploadFile(uploadUrl, f, frac => { filesBox.textContent = `${prefix} — ${Math.round(frac * 100)} %`; });
         files.push(r.filename);
         okCount++;
       } catch (e) {
@@ -3589,6 +3608,7 @@ async function renderLocationsCard() {
       ${line('Réglages', info.configDir, info.rootDir ? 'Centres, tarifs, modèles d\'email, types de cours, étampe. Rangés avec vos cours : une mise à jour ne les touche plus.' : 'Provisoire : ils seront rangés dans le répertoire racine dès qu\'il sera choisi.')}
       ${line('Corbeille', info.trashDir, '')}
       ${line('Chemin de la racine', info.localFile, 'Propre à cet ordinateur.')}
+      ${info.logFile ? line('Journal', info.logFile, 'Messages de démarrage et erreurs. Archivé automatiquement au-delà de 1 Mo.') : ''}
     </tbody></table>
     <details style="margin-top:10px">
       <summary style="cursor:pointer">Importer les réglages d'une ancienne installation</summary>
@@ -3799,34 +3819,34 @@ function renderSettings() {
     const statusEl = document.getElementById('s-backup-status');
     btn.disabled = true;
     const originalText = btn.textContent;
-    btn.textContent = 'Création de la sauvegarde en cours... (peut prendre un moment)';
+    btn.textContent = 'Création de la sauvegarde en cours...';
     statusEl.textContent = '';
     try {
-      const res = await fetch('/api/backup', { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        const messages = {
-          ROOT_NOT_SET: 'Aucun répertoire racine défini.',
-          ROOT_NOT_FOUND: "Le répertoire racine n'existe pas sur le disque.",
-          ROOT_EMPTY: 'Le répertoire racine est vide — rien à sauvegarder.',
-          BACKUP_FAILED: 'Échec de la création du zip : ' + (err.details || '')
-        };
-        statusEl.textContent = '❌ ' + (messages[err.error] || ('Erreur : ' + (err.error || res.statusText)));
-        return;
+      // 1) Lancer la création du zip (tâche de fond côté programme), 2) suivre l'avancement,
+      // 3) laisser le navigateur télécharger le fichier directement sur le disque.
+      let job = await api('POST', '/api/backup');
+      while (job.state === 'running') {
+        const pct = job.bytesTotal ? Math.round(job.bytesDone / job.bytesTotal * 100) : 0;
+        statusEl.textContent = `⏳ ${job.filesDone} / ${job.filesTotal} fichiers — ${fmtBytes(job.bytesDone)} sur ${fmtBytes(job.bytesTotal)} (${pct} %)`;
+        await new Promise(r => setTimeout(r, 700));
+        job = await api('GET', '/api/backup/status');
       }
-      const blob = await res.blob();
-      const cd = res.headers.get('Content-Disposition') || '';
-      const match = /filename="?([^";]+)"?/.exec(cd);
-      const filename = (match && match[1]) || 'PLONGEE_BACKUP.zip';
-      const url = URL.createObjectURL(blob);
+      if (job.state !== 'done') throw Object.assign(new Error('BACKUP_FAILED'), { data: { details: job.error } });
       const a = document.createElement('a');
-      a.href = url; a.download = filename;
+      a.href = '/api/backup/download/' + encodeURIComponent(job.id);
+      a.download = job.filename;
       document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      statusEl.textContent = '✅ Sauvegarde téléchargée : ' + filename;
-      toast('Sauvegarde créée : ' + filename);
+      const skipped = job.skipped || [];
+      statusEl.innerHTML = `✅ Sauvegarde créée : <strong>${escapeHtml(job.filename)}</strong> (${fmtBytes(job.zipBytes)}, ${job.filesTotal - skipped.length} fichiers). Le téléchargement démarre dans votre navigateur.` +
+        (skipped.length ? `<br><span style="color:var(--red)">⚠ ${skipped.length} fichier(s) n'ont pas pu être lus et ne sont PAS dans la sauvegarde :</span><br>${skipped.slice(0, 20).map(s => escapeHtml(s.file)).join('<br>')}${skipped.length > 20 ? '<br>…' : ''}` : '');
+      toast(skipped.length ? `Sauvegarde créée, mais ${skipped.length} fichier(s) illisible(s)` : 'Sauvegarde créée : ' + job.filename, !!skipped.length);
     } catch (e) {
-      statusEl.textContent = '❌ Erreur lors de la sauvegarde : ' + friendlyError(e);
+      const messages = {
+        ROOT_NOT_SET: 'Aucun répertoire racine défini.',
+        ROOT_EMPTY: 'Le répertoire racine est vide — rien à sauvegarder.',
+        BACKUP_FAILED: 'Échec de la création du zip : ' + ((e.data && e.data.details) || '')
+      };
+      statusEl.textContent = '❌ ' + (messages[e.message] || friendlyError(e));
     } finally {
       btn.disabled = false;
       btn.textContent = originalText;

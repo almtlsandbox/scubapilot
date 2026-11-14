@@ -15,7 +15,7 @@ Aide-mémoire : [installation](docs/GUIDE.md#2-installation) · [premiers pas](d
 
 1. Installez [Node.js](https://nodejs.org/) (LTS, 18 ou plus).
 2. Décompressez l'application (ex. `C:\Apps\ScubaPilot`) et lancez `npm install` dans ce dossier.
-3. Double-cliquez sur **`Lancer (avec fenetre).bat`** — l'application s'ouvre sur <http://localhost:4531>.
+3. Double-cliquez sur **`Lancer ScubaPilot.bat`** — l'application s'ouvre sur <http://localhost:4531>.
 4. Dans **Paramètres** : répertoire racine, vos coordonnées, au moins un centre, vos tarifs. Puis créez votre premier cours.
 
 ## Fonctionnalités

@@ -4,3 +4,4 @@ app.log
 .DS_Store
 Thumbs.db
 data/stamp.json
+app.log.1
