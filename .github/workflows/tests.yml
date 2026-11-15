@@ -1,0 +1,31 @@
+# Lance les tests automatiques à chaque envoi sur GitHub, sous Windows (là où ScubaPilot est
+# utilisé) et sous Linux, avec le vrai Express installé par npm.
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        node: [20]
+        include:
+          - os: windows-latest
+            node: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Installer les composants
+        run: npm install --no-audit --no-fund
+      - name: Lancer les tests
+        run: npm test

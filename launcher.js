@@ -17,7 +17,8 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, execFile, execFileSync } = require('child_process');
 
-const PORT = 4531;
+// Port 4531, sauf pour les tests automatiques (variable SCUBAPILOT_PORT) qui tournent à côté sans gêner l'application.
+const PORT = Number(process.env.SCUBAPILOT_PORT) || 4531;
 const HOST = '127.0.0.1';
 const URL_APP = `http://localhost:${PORT}`;
 const APP_DIR = __dirname;

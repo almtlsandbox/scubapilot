@@ -5,7 +5,8 @@ const os = require('os');
 const { execFile } = require('child_process');
 
 const app = express();
-const PORT = 4531;
+// Port 4531, sauf pour les tests automatiques (variable SCUBAPILOT_PORT) qui tournent à côté sans gêner l'application.
+const PORT = Number(process.env.SCUBAPILOT_PORT) || 4531;
 // L'application n'est destinée qu'à cet ordinateur. On refuse toute requête qui ne vise pas
 // localhost (protection contre un site web malveillant qui ferait pointer son nom de domaine
 // vers 127.0.0.1) ; voir aussi app.listen() en bas, qui n'écoute que sur 127.0.0.1.
