@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 const app = express();
@@ -279,6 +280,103 @@ app.param('id', (req, res, next, value) => (isSafeSegment(value) && !isReservedD
 app.param('folder', (req, res, next, value) => isSafeSegment(value) ? next() : res.status(400).json({ error: 'INVALID_PATH' }));
 app.param('tid', (req, res, next, value) => isSafeSegment(value) ? next() : res.status(400).json({ error: 'INVALID_PATH' }));
 
+// ---------- Identifiant d'étudiant ----------
+// Chaque fiche (student.json) porte un identifiant stable, studentId. Deux fiches de cours
+// différents avec le même identifiant sont la même personne : c'est ce qui permet la fiche globale,
+// le renommage et la mise à jour des coordonnées partout, sans confondre deux homonymes.
+//
+// Règle de rapprochement (migration des anciennes fiches, et inscription d'un nouvel étudiant) :
+// même prénom + nom (sans tenir compte des majuscules ni des accents) ET même courriel OU même date
+// de naissance => même personne. Sinon, ce sont deux personnes ; on peut les fusionner à la main.
+const STUDENT_ID_RE = /^etu_[0-9a-f]{12}$/;
+function newStudentId() { return 'etu_' + crypto.randomBytes(6).toString('hex'); }
+function normPersonName(s) {
+  return `${(s && s.firstName) || ''} ${(s && s.lastName) || ''}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+}
+function normEmail(e) { return String(e || '').trim().toLowerCase(); }
+function samePerson(a, b) {
+  if (!a || !b || !normPersonName(a) || normPersonName(a) !== normPersonName(b)) return false;
+  const ea = normEmail(a.email), eb = normEmail(b.email);
+  if (ea && ea === eb) return true;
+  const da = String(a.birthDate || '').trim(), db = String(b.birthDate || '').trim();
+  return !!da && da === db;
+}
+// Toutes les fiches lisibles de la racine : [{ courseId, folder, file, data }]. Les fiches illisibles sont ignorées.
+function scanStudents(root) {
+  const out = [];
+  let courseDirs = [];
+  try { courseDirs = fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory() && !isReservedDir(d.name)); } catch (e) { return out; }
+  for (const cd of courseDirs) {
+    const cPath = path.join(root, cd.name);
+    if (!fs.existsSync(path.join(cPath, 'course.json'))) continue;
+    let dirs = [];
+    try { dirs = fs.readdirSync(cPath, { withFileTypes: true }).filter(d => d.isDirectory()); } catch (e) { continue; }
+    for (const sd of dirs) {
+      const file = path.join(cPath, sd.name, 'student.json');
+      const data = readJSON(file, null);
+      if (data && typeof data === 'object' && !Array.isArray(data)) out.push({ courseId: cd.name, folder: sd.name, file, data });
+    }
+  }
+  return out;
+}
+// Identifiant pour une nouvelle fiche : celui demandé s'il existe déjà, sinon celui d'une personne
+// connue qui correspond selon la règle, sinon un nouveau.
+function resolveStudentId(records, data) {
+  const wanted = data && data.studentId;
+  if (wanted && STUDENT_ID_RE.test(wanted) && records.some(r => r.data.studentId === wanted)) return wanted;
+  const match = records.find(r => r.data.studentId && samePerson(r.data, data));
+  return match ? match.data.studentId : newStudentId();
+}
+// Donne un identifiant à toutes les fiches qui n'en ont pas (fiches d'avant la version 1.15, ou
+// créées par une ancienne version sur un autre ordinateur). Avant de modifier quoi que ce soit, une
+// copie des fiches concernées est rangée dans _ScubaPilot/_avant-identifiants-<date>/.
+let studentIdsMayBeMissing = true;
+function ensureStudentIds(root) {
+  const records = scanStudents(root);
+  const missing = records.filter(r => !STUDENT_ID_RE.test(r.data.studentId || ''));
+  studentIdsMayBeMissing = false;
+  if (!missing.length) return { assigned: 0, persons: 0 };
+  const keep = path.join(root, CONFIG_DIRNAME, `_avant-identifiants-${trashStamp()}`);
+  for (const r of missing) {
+    const dest = path.join(keep, r.courseId, r.folder);
+    fs.mkdirSync(dest, { recursive: true });
+    fs.copyFileSync(r.file, path.join(dest, 'student.json'));
+  }
+  // Regroupe d'abord les fiches sans identifiant entre elles (la relation est transitive)...
+  const parent = missing.map((_, i) => i);
+  const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  for (let i = 0; i < missing.length; i++) for (let j = i + 1; j < missing.length; j++) {
+    if (samePerson(missing[i].data, missing[j].data)) parent[find(i)] = find(j);
+  }
+  const groups = new Map();
+  missing.forEach((r, i) => { const g = find(i); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(r); });
+  // ... puis rattache chaque groupe à une personne déjà identifiée si l'une de ses fiches correspond.
+  const known = records.filter(r => STUDENT_ID_RE.test(r.data.studentId || ''));
+  let assigned = 0;
+  for (const members of groups.values()) {
+    const hit = known.find(k => members.some(m => samePerson(k.data, m.data)));
+    const id = hit ? hit.data.studentId : newStudentId();
+    for (const m of members) {
+      try {
+        const fresh = readJSONStrict(m.file, null); // relu juste avant d'écrire : rien d'autre n'est modifié
+        if (!fresh || STUDENT_ID_RE.test(fresh.studentId || '')) continue;
+        writeJSON(m.file, { ...fresh, studentId: id });
+        assigned++;
+      } catch (e) { /* fiche devenue illisible entre-temps : on n'y touche pas */ }
+    }
+  }
+  console.log(`[${new Date().toISOString()}] Identifiants d'étudiant : ${assigned} fiche(s) complétée(s), ${groups.size} personne(s). Copie des fiches d'origine : ${keep}`);
+  return { assigned, persons: groups.size, savedIn: keep };
+}
+function ensureStudentIdsIfNeeded(root) { if (studentIdsMayBeMissing) { try { ensureStudentIds(root); } catch (e) { console.error('Identifiants d\'étudiant :', e && e.message); } } }
+// Nom de dossier libre pour un étudiant dans un cours : « Prénom NOM », puis « Prénom NOM (2) »...
+function freeStudentFolder(cFolder, firstName, lastName) {
+  const base = sanitize(`${firstName} ${String(lastName || '').toUpperCase()}`);
+  let name = base, n = 2;
+  while (fs.existsSync(path.join(cFolder, name))) name = `${base} (${n++})`;
+  return name;
+}
+
 // ---------- Corbeille ----------
 // Supprimer un cours ou un étudiant le DÉPLACE dans <racine>/_Corbeille/<horodatage>/ au lieu de
 // l'effacer. Chaque entrée contient info.json (ce que c'était, d'où ça vient, quand) et le dossier
@@ -448,6 +546,7 @@ app.put('/api/settings', (req, res) => {
     let prevCfg = DATA_DIR;
     if (prevRoot && fs.existsSync(path.join(prevRoot, CONFIG_DIRNAME))) prevCfg = path.join(prevRoot, CONFIG_DIRNAME);
     setLocalRoot(newRoot);
+    studentIdsMayBeMissing = true; // nouvelle racine : ses fiches seront vérifiées au prochain affichage
     if (!newRoot) return res.json({ ok: true });
     // Si la nouvelle racine a déjà ses propres réglages (ex. : nouvel ordinateur pointant vers le
     // même dossier OneDrive), on les ADOPTE tels quels : surtout ne pas les écraser avec ceux du navigateur.
@@ -512,13 +611,14 @@ function computeCourseStats(root, courseId, course) {
   for (const sName of (course.students || [])) {
     const sData = readJSON(path.join(cFolder, sName, 'student.json'), null);
     if (!sData) { if (fs.existsSync(path.join(cFolder, sName, 'student.json'))) corruptedStudents++; continue; }
+    if (!sData.studentId) studentIdsMayBeMissing = true; // fiche venue d'une ancienne version : sera complétée au prochain passage
     const preC = countDocGroup(sData.preDocs, type.preDocs);
     const postC = countDocGroup(sData.postDocs, type.postDocs);
     totalPre += preC.total; donePre += preC.done;
     totalPost += postC.total; donePost += postC.done;
     const mailLog = Array.isArray(sData.mailLog) ? sData.mailLog : [];
     students.push({
-      folder: sName, firstName: sData.firstName, lastName: sData.lastName,
+      folder: sName, studentId: sData.studentId || '', firstName: sData.firstName, lastName: sData.lastName,
       prePercent: preC.total ? Math.round(100 * preC.done / preC.total) : 100,
       postPercent: postC.total ? Math.round(100 * postC.done / postC.total) : 100,
       // Détails utilisés par la liste « À faire » du tableau de bord
@@ -547,6 +647,7 @@ function computeCourseStats(root, courseId, course) {
 app.get('/api/courses', (req, res) => {
   try {
     const root = getRoot();
+    ensureStudentIdsIfNeeded(root);
     if (!fs.existsSync(root)) return res.json([]);
     const dirs = fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory() && !isReservedDir(d.name));
     const courses = [];
@@ -690,11 +791,21 @@ app.post('/api/courses/:id/students', (req, res) => {
     const course = readJSONStrict(cJsonPath, {});
     const types = readJSON(cfg('course_types.json'), []);
     const type = types.find(t => t.code === course.typeCode) || { preDocs: [], postDocs: [] };
-    const b = req.body || {};
+    const { homonym, corrupted, files, folder, ...b } = req.body || {};
     if (!b.firstName || !b.lastName) return res.status(400).json({ error: 'MISSING_FIELDS' });
-    const folderName = sanitize(`${b.firstName} ${(b.lastName || '').toUpperCase()}`);
+    ensureStudentIdsIfNeeded(root);
+    const records = scanStudents(root);
+    b.studentId = resolveStudentId(records, b);
+    // Déjà inscrit à ce cours ? La même personne (même identifiant) : toujours refusé. Un simple
+    // homonyme : refusé par défaut (STUDENT_EXISTS, avec homonym: true pour que l'interface pose la
+    // question), accepté si la requête confirme que c'est quelqu'un d'autre (homonym: true).
+    const here = records.filter(r => r.courseId === req.params.id);
+    if (here.some(r => r.data.studentId === b.studentId)) return res.status(400).json({ error: 'STUDENT_EXISTS', samePerson: true });
+    const baseName = sanitize(`${b.firstName} ${(b.lastName || '').toUpperCase()}`);
+    const nameTaken = fs.existsSync(path.join(cFolder, baseName)) || here.some(r => normPersonName(r.data) === normPersonName(b));
+    if (nameTaken && !homonym) return res.status(400).json({ error: 'STUDENT_EXISTS', homonym: true });
+    const folderName = freeStudentFolder(cFolder, b.firstName, b.lastName);
     const sFolder = path.join(cFolder, folderName);
-    if (fs.existsSync(sFolder)) return res.status(400).json({ error: 'STUDENT_EXISTS' });
     fs.mkdirSync(sFolder, { recursive: true });
     const preDocs = {}; (type.preDocs || []).forEach(d => preDocs[d.id] = { collected: false, date: null, needed: docRequirement(d) === 'required' });
     const postDocs = {}; (type.postDocs || []).forEach(d => postDocs[d.id] = { collected: false, date: null, needed: docRequirement(d) === 'required' });
@@ -724,6 +835,8 @@ app.post('/api/courses/:id/students/bulk', (req, res) => {
     const list = Array.isArray(req.body.students) ? req.body.students : [];
     const created = [], skipped = [];
     course.students = course.students || [];
+    ensureStudentIdsIfNeeded(root);
+    const records = scanStudents(root);
     for (const b of list) {
       if (!b || !b.firstName || !b.lastName) { skipped.push({ name: (b && (b.firstName || b.lastName)) || '(inconnu)', reason: 'Prénom/nom manquant' }); continue; }
       const folderName = sanitize(`${b.firstName} ${(b.lastName || '').toUpperCase()}`);
@@ -732,8 +845,9 @@ app.post('/api/courses/:id/students/bulk', (req, res) => {
       fs.mkdirSync(sFolder, { recursive: true });
       const preDocs = {}; (type.preDocs || []).forEach(d => preDocs[d.id] = { collected: false, date: null, needed: docRequirement(d) === 'required' });
       const postDocs = {}; (type.postDocs || []).forEach(d => postDocs[d.id] = { collected: false, date: null, needed: docRequirement(d) === 'required' });
-      const student = { ...b, preDocs, postDocs };
+      const student = { ...b, studentId: resolveStudentId(records, b), preDocs, postDocs };
       writeJSON(path.join(sFolder, 'student.json'), student);
+      records.push({ courseId: req.params.id, folder: folderName, file: path.join(sFolder, 'student.json'), data: student });
       course.students.push(folderName);
       created.push(folderName);
     }
@@ -750,7 +864,8 @@ app.put('/api/courses/:id/students/:folder', (req, res) => {
     const p = path.join(root, req.params.id, req.params.folder, 'student.json');
     if (!fs.existsSync(p)) return res.status(404).json({ error: 'NOT_FOUND' });
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ error: 'INVALID_DATA' });
-    const { corrupted, files, folder, ...patch } = req.body; // champs calculés par le serveur : jamais enregistrés
+    // corrupted / files / folder sont calculés par le serveur ; studentId ne change que par fusion ou détachement.
+    const { corrupted, files, folder, studentId, ...patch } = req.body;
     const updated = { ...readJSONStrict(p, {}), ...patch };
     writeJSON(p, updated);
     res.json({ folder: req.params.folder, ...updated });
@@ -784,7 +899,9 @@ app.get('/api/global-students', (req, res) => {
   try {
     const root = getRoot();
     if (!fs.existsSync(root)) return res.json([]);
+    ensureStudentIdsIfNeeded(root);
     const q = (req.query.q || '').toLowerCase();
+    const sid = req.query.sid || '';
     const results = [];
     const courseDirs = fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory() && !isReservedDir(d.name));
     for (const cd of courseDirs) {
@@ -796,7 +913,7 @@ app.get('/api/global-students', (req, res) => {
         const sData = readJSON(path.join(cPath, sd.name, 'student.json'), null);
         if (!sData) continue;
         const full = `${sData.firstName || ''} ${sData.lastName || ''}`.toLowerCase();
-        if (!q || full.includes(q)) {
+        if (sid ? sData.studentId === sid : (!q || full.includes(q))) {
           const { preDocs, postDocs, ...rest } = sData;
           results.push({ courseId: cd.name, folder: sd.name, ...rest });
         }
@@ -806,6 +923,76 @@ app.get('/api/global-students', (req, res) => {
   } catch (e) {
     fail(res, e);
   }
+});
+
+// ---------- Fiche globale d'une personne : renommer, fusionner, détacher ----------
+app.param('sid', (req, res, next, value) => STUDENT_ID_RE.test(value) ? next() : res.status(400).json({ error: 'INVALID_STUDENT_ID' }));
+
+// Renomme une personne dans TOUS ses cours : dossier, fiche, liste des étudiants du cours et
+// répartition de la facture (qui désigne les étudiants par leur dossier).
+app.post('/api/students/:sid/rename', (req, res) => {
+  try {
+    const root = getRoot();
+    const firstName = String((req.body && req.body.firstName) || '').trim(), lastName = String((req.body && req.body.lastName) || '').trim();
+    if (!firstName || !lastName || !sanitize(firstName) || !sanitize(lastName)) return res.status(400).json({ error: 'MISSING_FIELDS' });
+    const mine = scanStudents(root).filter(r => r.data.studentId === req.params.sid);
+    if (!mine.length) return res.status(404).json({ error: 'NOT_FOUND' });
+    const renamed = [], failed = [];
+    for (const r of mine) {
+      try {
+        const cFolder = path.join(root, r.courseId), cJsonPath = path.join(cFolder, 'course.json');
+        const course = readJSONStrict(cJsonPath, {});
+        const fresh = readJSONStrict(r.file, null);
+        if (!fresh) throw corruptError(r.file);
+        const wanted = sanitize(`${firstName} ${lastName.toUpperCase()}`);
+        let target = r.folder;
+        if (wanted !== r.folder) {
+          // Même dossier à la casse près (« marc ROY » -> « Marc ROY ») : renommage direct. Sinon, nom libre.
+          target = wanted.toLowerCase() === r.folder.toLowerCase() ? wanted : freeStudentFolder(cFolder, firstName, lastName);
+          if (!isSafeSegment(target) || !insideRoot(cFolder, path.join(cFolder, target))) throw invalidPath();
+          moveDir(path.join(cFolder, r.folder), path.join(cFolder, target));
+          try {
+            course.students = (course.students || []).map(s => s === r.folder ? target : s);
+            if (course.invoice && course.invoice.assign && Object.prototype.hasOwnProperty.call(course.invoice.assign, r.folder)) {
+              course.invoice.assign[target] = course.invoice.assign[r.folder];
+              delete course.invoice.assign[r.folder];
+            }
+            writeJSON(cJsonPath, course);
+          } catch (e) { try { moveDir(path.join(cFolder, target), path.join(cFolder, r.folder)); } catch (e2) {} throw e; }
+        }
+        writeJSON(path.join(cFolder, target, 'student.json'), { ...fresh, firstName, lastName });
+        renamed.push({ courseId: r.courseId, from: r.folder, to: target });
+      } catch (e) { failed.push({ courseId: r.courseId, folder: r.folder, error: e.message || 'ERROR' }); }
+    }
+    res.status(renamed.length ? 200 : 500).json({ ok: !failed.length, renamed, failed });
+  } catch (e) { fail(res, e); }
+});
+// Fusionne deux personnes : toutes les fiches de « from » passent à l'identifiant « into ».
+app.post('/api/students/merge', (req, res) => {
+  try {
+    const root = getRoot();
+    const from = req.body && req.body.from, into = req.body && req.body.into;
+    if (!STUDENT_ID_RE.test(from || '') || !STUDENT_ID_RE.test(into || '') || from === into) return res.status(400).json({ error: 'INVALID_STUDENT_ID' });
+    const records = scanStudents(root);
+    if (!records.some(r => r.data.studentId === into)) return res.status(404).json({ error: 'NOT_FOUND' });
+    const mine = records.filter(r => r.data.studentId === from);
+    if (!mine.length) return res.status(404).json({ error: 'NOT_FOUND' });
+    let moved = 0;
+    for (const r of mine) { const fresh = readJSONStrict(r.file, null); if (fresh) { writeJSON(r.file, { ...fresh, studentId: into }); moved++; } }
+    res.json({ ok: true, moved });
+  } catch (e) { fail(res, e); }
+});
+// Détache la fiche d'un cours de sa personne : elle devient une personne à part (nouvel identifiant).
+app.post('/api/courses/:id/students/:folder/detach', (req, res) => {
+  try {
+    const root = getRoot();
+    const p = path.join(root, req.params.id, req.params.folder, 'student.json');
+    if (!fs.existsSync(p)) return res.status(404).json({ error: 'NOT_FOUND' });
+    const fresh = readJSONStrict(p, {});
+    const studentId = newStudentId();
+    writeJSON(p, { ...fresh, studentId });
+    res.json({ ok: true, studentId });
+  } catch (e) { fail(res, e); }
 });
 
 // Évite d'écraser un fichier existant : ajoute " (2)", " (3)"... avant l'extension si besoin.
@@ -971,7 +1158,7 @@ process.on('uncaughtException', e => console.error(`[${new Date().toISOString()}
 process.on('unhandledRejection', e => console.error(`[${new Date().toISOString()}] Erreur imprévue (promesse) :`, e && e.stack || e));
 
 // Au démarrage : reprise du chemin de la racine et migration des réglages vers <racine>/_ScubaPilot/.
-try { configDir(); } catch (e) { /* racine absente ou pas encore choisie : l'interface le signalera */ }
+try { configDir(); ensureStudentIds(getRoot()); } catch (e) { /* racine absente ou pas encore choisie : l'interface le signalera */ }
 
 const server = app.listen(PORT, HOST, () => {
   console.log('=================================================');

@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.14 — Novembre 2026**
+**Version 1.15 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -222,6 +222,7 @@ Dans l'onglet **Étudiants** :
 
 - **Ajouter un étudiant** : remplissez le formulaire (prénom et nom obligatoires). Un dossier `Prénom NOM` est créé dans le dossier du cours. Si l'étudiant a déjà suivi un cours, **recherchez-le par nom** : ses coordonnées sont copiées depuis son cours précédent.
 - **Importer plusieurs étudiants (Excel, CSV)** : voir [5.9](#59-importer-plusieurs-étudiants-excel-csv).
+- **Deux étudiants du même nom dans un cours** : si le nom est déjà pris dans ce cours, ScubaPilot demande s'il s'agit d'une autre personne. Sur confirmation, un second dossier est créé (`Prénom NOM (2)`) et une étiquette « homonyme » permet de les distinguer dans la liste.
 
 ### 5.5 La fiche d'un étudiant (dans un cours)
 
@@ -261,7 +262,18 @@ Un même étudiant peut suivre plusieurs cours. Sa **fiche globale** (lien à c�
 
 
 - l'**historique** de tous ses cours (date, type, centre, % pré/post, certification ou transfert, instructeur certificateur), cliquable ;
-- ses **coordonnées** les plus récentes. Le bouton **« Mettre à jour partout »** reporte une correction (ex. un nouveau numéro de téléphone) dans le dossier de l'étudiant de chacun de ses cours.
+- son **nom**, que vous pouvez corriger : le bouton **Renommer** renomme son dossier dans chacun de ses cours, avec ses documents (la facture du cours suit) ;
+- ses **coordonnées** les plus récentes. Le bouton **« Mettre à jour partout »** reporte une correction (ex. un nouveau numéro de téléphone) dans le dossier de l'étudiant de chacun de ses cours. Le statut (cours, certification) reste propre à chaque cours.
+
+#### Comment ScubaPilot reconnaît une personne
+
+Chaque étudiant a un **identifiant** invisible, inscrit dans sa fiche. Deux fiches de cours différents appartiennent à la même personne quand elles portent le même identifiant.
+
+- **À l'inscription**, un étudiant est reconnu s'il porte le **même prénom et le même nom** (majuscules et accents ignorés) **et** le **même courriel ou la même date de naissance** qu'une fiche existante. Sinon, c'est une nouvelle personne. Choisir l'étudiant dans la recherche « étudiant existant » le rattache à coup sûr.
+- **Deux homonymes restent séparés.** Quand une autre fiche porte le même nom, un encadré le signale en haut de la fiche globale : si c'est la même personne (par exemple un courriel manquant d'un côté), cliquez sur **« C'est la même personne : fusionner »**.
+- **Un cours rattaché par erreur ?** Dans l'historique, le bouton **Détacher** le sort de la fiche : il devient la fiche d'une autre personne. Rien n'est supprimé.
+
+**Passage à la version 1.15.** Au premier démarrage, ScubaPilot attribue un identifiant à toutes vos fiches existantes, selon la même règle. Rien d'autre n'est modifié, et une copie des fiches d'origine est rangée dans `_ScubaPilot/_avant-identifiants-…` du répertoire racine. Deux fiches au même nom sans courriel ni date de naissance en commun deviennent deux personnes : parcourez les encadrés « même nom » pour fusionner celles qui sont en réalité la même.
 
 ### 5.8 Clore et supprimer
 
@@ -582,7 +594,9 @@ Si OneDrive n'a pas fini de démarrer, si un disque n'est pas branché ou si le 
 
 **Je ne vois pas « Transfert de dossier ».** Il n'apparaît que pour un étudiant en « cours seulement » ; vérifiez son statut et rechargez la page (`Ctrl + F5`).
 
-**Un étudiant est « en double » entre deux cours.** C'est normal : chaque cours garde son dossier étudiant ; la fiche globale les réunit.
+**Un étudiant est « en double » entre deux cours.** C'est normal : chaque cours garde son dossier étudiant ; la fiche globale les réunit grâce à l'identifiant de l'étudiant.
+
+**La fiche globale d'un étudiant ne montre pas tous ses cours.** Les fiches n'ont ni courriel ni date de naissance en commun, donc ScubaPilot les a gardées séparées. Ouvrez sa fiche globale : l'encadré « même nom » propose de les fusionner.
 
 ## 16. Notes techniques
 

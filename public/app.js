@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.14';
+const APP_VERSION = '1.15';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -149,6 +149,7 @@ function friendlyError(e) {
     return `Un fichier de données est illisible${f}. Rien n'a été modifié, pour ne pas écraser son contenu. Restaurez une version précédente du fichier (clic droit sur le fichier → Historique des versions dans OneDrive) ou depuis une sauvegarde, puis rechargez la page.`;
   }
   if (raw === 'INVALID_PATH') return "Nom de dossier invalide : l'opération a été refusée.";
+  if (raw === 'INVALID_STUDENT_ID') return "Identifiant d'étudiant invalide.";
   if (raw === 'FILE_TOO_LARGE') return 'Fichier trop volumineux (plus de 8 Go).';
   if (raw === 'DISK_FULL') return "Le disque est plein : le fichier n'a pas été copié.";
   if (raw === 'UPLOAD_ABORTED') return "L'envoi a été interrompu : le fichier n'a pas été copié.";
@@ -335,7 +336,8 @@ function buildDropZone(uploadUrl, initialFiles, label) {
 // Confirmation en 2 étapes pour les suppressions coûteuses (cours, étudiant) : une modale doit être
 // explicitement validée, et pour les actions les plus risquées on exige de retaper le nom concerné
 // (comme sur GitHub) plutôt qu'un simple confirm() qu'on peut valider par réflexe.
-function showConfirmModal({ title, message, confirmText, requireTypeText }) {
+// neutral: true -> bouton de confirmation bleu (action non destructrice) au lieu de rouge.
+function showConfirmModal({ title, message, confirmText, requireTypeText, neutral }) {
   return new Promise(resolve => {
     const overlay = el(`
       <div class="modal-overlay">
@@ -344,7 +346,7 @@ function showConfirmModal({ title, message, confirmText, requireTypeText }) {
           <p>${message}</p>
           ${requireTypeText ? `<p class="muted">Tapez <strong>${escapeHtml(requireTypeText)}</strong> ci-dessous pour confirmer :</p><input id="confirm-type-input">` : ''}
           <div class="actions-inline" style="margin-top:16px">
-            <button class="btn danger" id="confirm-yes-btn" ${requireTypeText ? 'disabled' : ''}>${escapeHtml(confirmText || 'Confirmer la suppression')}</button>
+            <button class="btn${neutral ? '' : ' danger'}" id="confirm-yes-btn" ${requireTypeText ? 'disabled' : ''}>${escapeHtml(confirmText || 'Confirmer la suppression')}</button>
             <button class="btn secondary" id="confirm-no-btn">Annuler</button>
           </div>
         </div>
@@ -887,19 +889,13 @@ async function renderDashboard() {
     if (!q) { studentListBox.style.display = 'none'; return; }
     studentDebounce = setTimeout(async () => {
       const results = await api('GET', '/api/global-students?q=' + encodeURIComponent(q));
-      // Un même étudiant peut apparaître dans plusieurs cours : on ne garde qu'une entrée par nom.
-      const seen = new Set();
-      const unique = results.filter(r => {
-        const k = studentKey(r);
-        if (seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      });
-      if (!unique.length) { studentListBox.style.display = 'none'; return; }
+      // Une entrée par personne (identifiant), avec de quoi distinguer deux homonymes.
+      const persons = groupPersons(results);
+      if (!persons.length) { studentListBox.style.display = 'none'; return; }
       studentListBox.innerHTML = '';
-      unique.slice(0, 8).forEach(r => {
-        const item = el(`<div>${escapeHtml(r.firstName)} ${escapeHtml(r.lastName)}</div>`);
-        item.addEventListener('click', () => { location.hash = '#/student/' + encodeURIComponent(studentKey(r)); });
+      persons.slice(0, 8).forEach(pn => {
+        const item = el(`<div>${escapeHtml(pn.latest.firstName)} ${escapeHtml(pn.latest.lastName)} <span class="muted">— ${escapeHtml(personHint(pn))}</span></div>`);
+        item.addEventListener('click', () => { location.hash = '#/student/' + encodeURIComponent(pn.studentId); });
         studentListBox.appendChild(item);
       });
       studentListBox.style.display = 'block';
@@ -2384,16 +2380,33 @@ async function renderCourseDetail(id) {
 }
 
 // ---------- Fiche étudiant globale (tous les cours d'un même étudiant) ----------
-// Il n'existe pas d'identifiant unique d'étudiant dans ce système : chaque cours a son propre
-// dossier "Prénom Nom". Cette vue regroupe tous les dossiers correspondant au même nom (clé
-// `studentKey`), affiche l'historique de ses cours, et permet de mettre à jour ses coordonnées
-// sur tous ces dossiers en une seule action plutôt que cours par cours.
+// Chaque fiche de cours porte un identifiant de personne (studentId). Cette vue regroupe toutes les
+// fiches d'une même personne, affiche l'historique de ses cours, et permet de la renommer, de mettre
+// à jour ses coordonnées partout, de fusionner un homonyme qui est en fait la même personne, ou de
+// détacher un cours rattaché par erreur.
 async function renderStudentProfile(key) {
   const app = document.getElementById('app');
   app.innerHTML = '<p class="muted">Chargement...</p>';
 
-  const candidates = await api('GET', '/api/global-students?q=' + encodeURIComponent(key));
-  const records = candidates.filter(r => studentKey(r) === key);
+  let records;
+  if (STUDENT_ID_RE.test(key)) {
+    records = await api('GET', '/api/global-students?sid=' + encodeURIComponent(key));
+  } else {
+    // Ancien lien par nom : une seule personne porte ce nom -> on y va ; plusieurs -> on demande laquelle.
+    const candidates = (await api('GET', '/api/global-students?q=' + encodeURIComponent(key))).filter(r => studentKey(r) === key);
+    const persons = groupPersons(candidates);
+    if (persons.length === 1 && STUDENT_ID_RE.test(persons[0].studentId)) { location.replace('#/student/' + encodeURIComponent(persons[0].studentId)); return; }
+    if (persons.length > 1) {
+      app.innerHTML = `
+        <h1>Plusieurs personnes portent ce nom</h1>
+        <div class="card"><p class="muted">Choisissez la fiche à ouvrir :</p>
+          <ul>${persons.map(pn => `<li><a href="#/student/${encodeURIComponent(pn.studentId)}">${escapeHtml(pn.latest.firstName)} ${escapeHtml(pn.latest.lastName)}</a> <span class="muted">— ${escapeHtml(personHint(pn))}</span></li>`).join('')}</ul>
+        </div>`;
+      return;
+    }
+    records = candidates;
+  }
+  const sid = records.length ? records[0].studentId : '';
   if (!records.length) {
     app.innerHTML = `
       <div class="card">
@@ -2429,9 +2442,20 @@ async function renderStudentProfile(key) {
   const latest = rows[0].record;
 
   app.innerHTML = `
-    <div class="actions-inline" style="justify-content:space-between">
+    <div class="actions-inline" style="justify-content:space-between;margin:0 0 16px">
       <h1 style="margin:0">${escapeHtml(latest.firstName)} ${escapeHtml(latest.lastName)}</h1>
       <button class="btn secondary small" onclick="location.hash='#/dashboard'">← Retour au tableau de bord</button>
+    </div>
+    <div id="profile-homonyms"></div>
+    <div class="card">
+      <h2>Nom</h2>
+      <p class="muted">Corrigez ici le prénom ou le nom : le dossier de l'étudiant est renommé dans ${records.length > 1 ? `ses ${records.length} cours` : 'son cours'}, avec ses documents.</p>
+      <div class="row" style="align-items:flex-end">
+        <div><label for="profile-first">Prénom</label><input id="profile-first" value="${escapeHtml(latest.firstName || '')}"></div>
+        <div><label for="profile-last">Nom</label><input id="profile-last" value="${escapeHtml(latest.lastName || '')}"></div>
+        <div style="flex:0 0 auto;min-width:0"><button class="btn small secondary" id="profile-rename">Renommer</button></div>
+      </div>
+      <p class="form-error" id="profile-rename-error" role="alert"></p>
     </div>
     <div class="card">
       <h2>Coordonnées</h2>
@@ -2445,7 +2469,7 @@ async function renderStudentProfile(key) {
     <div class="card">
       <h2>Historique des cours (${records.length})</h2>
       <table>
-        <thead><tr><th>Date</th><th>Type</th><th>Centre</th><th>Pré-cours</th><th>Post-cours</th><th>Certification</th><th>Instructeur certificateur</th><th>Notes</th></tr></thead>
+        <thead><tr><th>Date</th><th>Type</th><th>Centre</th><th>Pré-cours</th><th>Post-cours</th><th>Certification</th><th>Instructeur certificateur</th><th>Notes</th>${records.length > 1 ? '<th></th>' : ''}</tr></thead>
         <tbody id="profile-history"></tbody>
       </table>
     </div>
@@ -2453,7 +2477,8 @@ async function renderStudentProfile(key) {
 
   const fieldsBox = document.getElementById('profile-fields-box');
   state.studentFields.forEach(f => {
-    if (f.id === 'firstName' || f.id === 'lastName') return; // déjà dans le titre, non modifiables ici
+    if (f.id === 'firstName' || f.id === 'lastName') return; // modifiables dans la carte « Nom » (renommage)
+    if (f.id === 'status') return;                           // propre à chaque cours : se règle dans la fiche du cours
     fieldsBox.appendChild(el(`<div style="flex:1;min-width:200px"><label for="sf-${escapeHtml(f.id)}">${escapeHtml(f.label)}</label>${renderFieldInput(f, fieldValueOf(latest, f))}</div>`));
   });
   attachDateAutoFormat(fieldsBox);
@@ -2470,14 +2495,68 @@ async function renderStudentProfile(key) {
         <td>${studentHasCertification(record) ? (record.certificationConfirmed ? '✅ Certifié' : '❌ Non certifié') : (record.fileTransferred ? '📁 Dossier transféré' : '📁 Dossier non transféré')}</td>
         <td>${record.certifyingInstructorId ? escapeHtml(buddyLabelById(record.certifyingInstructorId)) : '<span class="muted">-</span>'}</td>
         <td style="white-space:pre-wrap;max-width:260px">${record.note && record.note.trim() ? escapeHtml(record.note) : '<span class="muted">-</span>'}</td>
+        ${records.length > 1 ? '<td style="text-align:right"><button class="btn secondary small" data-act="detach" title="Ce cours a été suivi par quelqu\'un d\'autre (un homonyme) : le sortir de cette fiche">Détacher</button></td>' : ''}
       </tr>
     `);
     if (course) { tr.addEventListener('click', () => location.hash = '#/course/' + encodeURIComponent(course.id)); makeActivatable(tr, 'link', 'Ouvrir le cours ' + course.id); }
+    const detachBtn = tr.querySelector('[data-act=detach]');
+    if (detachBtn && course) detachBtn.addEventListener('click', async ev => {
+      ev.stopPropagation();
+      const ok = await showConfirmModal({
+        title: 'Détacher ce cours de la fiche ?',
+        message: `Le cours <strong>${escapeHtml(courseTypeLabel(course.typeCode))}</strong>${firstDate ? ' du ' + escapeHtml(humanDate(firstDate)) : ''} sera sorti de cette fiche : ScubaPilot considérera qu'il a été suivi par une <strong>autre personne</strong> du même nom. Rien n'est supprimé, et vous pourrez fusionner les deux fiches plus tard.`,
+        confirmText: 'Détacher', neutral: true
+      });
+      if (!ok) return;
+      try { await api('POST', `/api/courses/${encodeURIComponent(course.id)}/students/${encodeURIComponent(record.folder)}/detach`); toast('Cours détaché : il a maintenant sa propre fiche'); renderStudentProfile(sid); }
+      catch (e) { toast('Erreur : ' + friendlyError(e), true); }
+    });
     historyBox.appendChild(tr);
   });
 
+  // --- Renommer la personne dans tous ses cours ---
+  document.getElementById('profile-rename').addEventListener('click', async (ev) => {
+    const firstName = document.getElementById('profile-first').value.trim(), lastName = document.getElementById('profile-last').value.trim();
+    const err = document.getElementById('profile-rename-error');
+    if (!firstName || !lastName) { err.textContent = 'Le prénom et le nom sont obligatoires.'; return; }
+    if (firstName === (latest.firstName || '') && lastName === (latest.lastName || '') && records.every(r => r.firstName === firstName && r.lastName === lastName)) { err.textContent = "Le nom n'a pas changé."; return; }
+    err.textContent = '';
+    await withBusy(ev.currentTarget, async () => {
+      try {
+        const r = await api('POST', `/api/students/${encodeURIComponent(sid)}/rename`, { firstName, lastName });
+        toast(r.failed && r.failed.length ? `Renommé dans ${r.renamed.length} cours ; ${r.failed.length} en échec` : `Renommé dans ${r.renamed.length} cours`, !!(r.failed && r.failed.length));
+        renderStudentProfile(sid);
+      } catch (e) { err.textContent = friendlyError(e); }
+    }, 'Renommage en cours...');
+  });
+
+  // --- Homonymes : d'autres fiches portent le même nom ; est-ce la même personne ? ---
+  api('GET', '/api/global-students?q=' + encodeURIComponent(`${latest.firstName || ''} ${latest.lastName || ''}`.trim())).then(all => {
+    const others = groupPersons(all.filter(r => r.studentId !== sid && normPersonName(r) === normPersonName(latest)));
+    const box = document.getElementById('profile-homonyms');
+    if (!box || !others.length) return;
+    box.innerHTML = `
+      <div class="setup-note">
+        <strong>${others.length === 1 ? 'Une autre fiche porte' : others.length + ' autres fiches portent'} le même nom.</strong>
+        ScubaPilot les garde séparées, parce que ni le courriel ni la date de naissance ne concordent. Si c'est la même personne, fusionnez-les.
+        <ul style="margin:8px 0 0">${others.map((pn, i) => `<li><a href="#/student/${encodeURIComponent(pn.studentId)}">${escapeHtml(pn.latest.firstName)} ${escapeHtml(pn.latest.lastName)}</a> <span class="muted">— ${escapeHtml(personHint(pn))} (${pn.records.map(r => escapeHtml(r.courseId)).join(', ')})</span>
+          <button class="btn secondary small" data-merge="${i}" style="margin-left:8px">C'est la même personne : fusionner</button></li>`).join('')}</ul>
+      </div>`;
+    box.querySelectorAll('[data-merge]').forEach(btn => btn.addEventListener('click', async () => {
+      const pn = others[Number(btn.dataset.merge)];
+      const ok = await showConfirmModal({
+        title: 'Fusionner ces deux fiches ?',
+        message: `Les ${pn.records.length} cours de l'autre fiche (${escapeHtml(personHint(pn))}) rejoindront l'historique de cette fiche. Aucun dossier n'est déplacé ni supprimé. Vous pourrez détacher un cours ensuite si c'était une erreur.`,
+        confirmText: 'Fusionner', neutral: true
+      });
+      if (!ok) return;
+      try { await api('POST', '/api/students/merge', { from: pn.studentId, into: sid }); toast('Fiches fusionnées'); renderStudentProfile(sid); }
+      catch (e) { toast('Erreur : ' + friendlyError(e), true); }
+    }));
+  }).catch(() => {});
+
   document.getElementById('profile-save').addEventListener('click', async (ev) => {
-    const payload = readFieldValues(state.studentFields.filter(f => f.id !== 'firstName' && f.id !== 'lastName'));
+    const payload = readFieldValues(state.studentFields.filter(f => f.id !== 'firstName' && f.id !== 'lastName' && f.id !== 'status'));
     await withBusy(ev.currentTarget, async () => {
       let okCount = 0, failCount = 0;
       for (const r of records) {
@@ -2576,13 +2655,32 @@ function studentHasCertification(s) {
   return !studentIsCourseOnly(s);
 }
 
-// Clé utilisée pour regrouper les dossiers étudiant d'un même nom à travers tous les cours (il n'y a
-// pas d'identifiant unique d'étudiant dans ce système, seulement un dossier "Prénom Nom" par cours).
+// Ancienne clé (nom en minuscules) : ne sert plus qu'à comprendre d'anciens liens « #/student/prénom nom ».
+// Une personne est désormais désignée par son identifiant studentId (voir server.js).
 function studentKey(s) {
   return `${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase();
 }
+const STUDENT_ID_RE = /^etu_[0-9a-f]{12}$/;
+// Nom comparé sans majuscules ni accents (même règle que le serveur).
+function normPersonName(s) {
+  return `${(s && s.firstName) || ''} ${(s && s.lastName) || ''}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+}
+// Regroupe des fiches (une par cours) en personnes : [{ studentId, records, latest }].
+function groupPersons(records) {
+  const map = new Map();
+  records.forEach(r => { const k = r.studentId || `sans-id:${r.courseId}/${r.folder}`; if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
+  return [...map.entries()].map(([studentId, recs]) => ({ studentId, records: recs, latest: recs[recs.length - 1] }));
+}
+// De quoi distinguer deux homonymes dans une liste : courriel, année de naissance, nombre de cours.
+function personHint(person) {
+  const withEmail = person.records.find(r => r.email), withBirth = person.records.find(r => r.birthDate);
+  return [withEmail ? withEmail.email : '', withBirth ? 'né(e) en ' + String(withBirth.birthDate).slice(0, 4) : '', `${person.records.length} cours`].filter(Boolean).join(' · ');
+}
 
 function renderStudentBlock(course, type, s) {
+  // Deux étudiants du même nom dans ce cours : on affiche de quoi les distinguer.
+  const namesake = (course.students || []).some(o => o !== s && normPersonName(o) === normPersonName(s));
+  const namesakeHint = namesake ? `<span class="tag-status" title="Un autre étudiant de ce cours porte le même nom">homonyme · ${escapeHtml(s.email || (s.birthDate ? 'né(e) en ' + String(s.birthDate).slice(0, 4) : 'dossier « ' + s.folder + ' »'))}</span>` : '';
   const p = countDocGroup(s.preDocs, type.preDocs);
   const q = countDocGroup(s.postDocs, type.postDocs);
   const prePct = p.total ? Math.round(100 * p.done / p.total) : 100;
@@ -2595,8 +2693,9 @@ function renderStudentBlock(course, type, s) {
       <div class="student-header">
         <div>
           <strong>${escapeHtml(s.firstName)} ${escapeHtml(s.lastName)}</strong>
-          <a href="#/student/${encodeURIComponent(studentKey(s))}" class="muted" style="font-size:12px;text-decoration:underline" data-act="profile-link" title="Voir tous les cours de cet étudiant">fiche globale</a>
+          <a href="#/student/${encodeURIComponent(s.studentId || studentKey(s))}" class="muted" style="font-size:12px;text-decoration:underline" data-act="profile-link" title="Voir tous les cours de cet étudiant">fiche globale</a>
           <span class="tag-status">${escapeHtml(statusLabel)}</span>
+          ${namesakeHint}
           ${s.corrupted ? '<span class="badge bad" title="Le fichier student.json de cet étudiant est illisible. Restaurez une version précédente (OneDrive → Historique des versions). Toute modification est refusée en attendant.">⚠ Fiche illisible</span>' : (missingInfo.length ? `<span class="badge bad" title="Manque : ${escapeHtml(missingInfo.join(', '))}">⚠ Infos incomplètes</span>` : '')}
           <span class="badge note-flag" data-note-flag="${escapeHtml(s.folder)}" style="${s.note && s.note.trim() ? '' : 'display:none'}" title="${escapeHtml((s.note || '').slice(0, 200))}">📝 Note</span>
         </div>
@@ -3106,9 +3205,10 @@ function renderAddStudentForm(course, type) {
 
   const searchInput = box.querySelector('#as-search');
   const listBox = box.querySelector('.autocomplete-list');
-  let debounce;
+  let debounce, pickedStudentId = '';
   searchInput.addEventListener('input', () => {
     clearTimeout(debounce);
+    pickedStudentId = '';
     const q = searchInput.value.trim();
     if (!q) { listBox.style.display = 'none'; return; }
     debounce = setTimeout(async () => {
@@ -3116,8 +3216,9 @@ function renderAddStudentForm(course, type) {
       if (!results.length) { listBox.style.display = 'none'; return; }
       listBox.innerHTML = '';
       results.slice(0, 8).forEach(r => {
-        const item = el(`<div>${escapeHtml(r.firstName)} ${escapeHtml(r.lastName)} <span class="muted">(${escapeHtml(r.courseId)})</span></div>`);
+        const item = el(`<div>${escapeHtml(r.firstName)} ${escapeHtml(r.lastName)} <span class="muted">(${escapeHtml(r.courseId)}${r.email ? ' · ' + escapeHtml(r.email) : ''})</span></div>`);
         item.addEventListener('click', () => {
+          pickedStudentId = r.studentId || ''; // même personne : son historique suivra
           fields.forEach(f => {
             const inputEl = document.getElementById('sf-' + f.id);
             if (!inputEl) return;
@@ -3138,14 +3239,27 @@ function renderAddStudentForm(course, type) {
   box.querySelector('#as-save').addEventListener('click', async (ev) => {
     const payload = readFieldValues(fields);
     if (!payload.firstName || !payload.lastName) { box.querySelector('#as-error').textContent = 'Prénom et nom requis.'; return; }
+    if (pickedStudentId) payload.studentId = pickedStudentId;
+    const url = `/api/courses/${encodeURIComponent(course.id)}/students`;
     await withBusy(ev.currentTarget, async () => {
       try {
-        await api('POST', `/api/courses/${encodeURIComponent(course.id)}/students`, payload);
+        try { await api('POST', url, payload); }
+        catch (e) {
+          // Un étudiant du même nom est déjà dans ce cours : on demande si c'est quelqu'un d'autre.
+          if (!(e.data && e.data.error === 'STUDENT_EXISTS' && e.data.homonym)) throw e;
+          const ok = await showConfirmModal({
+            title: 'Un homonyme dans ce cours ?',
+            message: `Un étudiant nommé <strong>${escapeHtml(payload.firstName)} ${escapeHtml(payload.lastName)}</strong> est déjà inscrit à ce cours. S'agit-il d'une <strong>autre personne</strong> qui porte le même nom ?`,
+            confirmText: "Oui, c'est quelqu'un d'autre : l'ajouter", neutral: true
+          });
+          if (!ok) return;
+          await api('POST', url, { ...payload, homonym: true });
+        }
         toast('Étudiant ajouté');
         route();
       } catch (e) {
         box.querySelector('#as-error').textContent = e.data && e.data.error === 'STUDENT_EXISTS'
-          ? 'Un dossier existe déjà pour ce prénom/nom dans ce cours.' : friendlyError(e);
+          ? 'Cet étudiant est déjà inscrit à ce cours.' : friendlyError(e);
       }
     });
   });

@@ -186,6 +186,27 @@ test('export calendrier (.ics)', async (t) => {
   });
 });
 
+test("personnes et homonymes", async (t) => {
+  const recs = [
+    { studentId: 'etu_aaaaaaaaaaaa', courseId: 'OWD_1', folder: 'Léa TREMBLAY', firstName: 'Léa', lastName: 'Tremblay', email: 'lea@exemple.ca' },
+    { studentId: 'etu_aaaaaaaaaaaa', courseId: 'AOWD_2', folder: 'Léa TREMBLAY', firstName: 'Léa', lastName: 'Tremblay', birthDate: '1996-09-03' },
+    { studentId: 'etu_bbbbbbbbbbbb', courseId: 'OWD_3', folder: 'Lea TREMBLAY', firstName: 'Lea', lastName: 'TREMBLAY' }];
+  await t.test('les fiches sont regroupées par identifiant, pas par nom', () => {
+    const persons = ui.call('groupPersons', recs);
+    assert.equal(persons.length, 2);
+    assert.deepEqual(persons.map(p => p.records.length), [2, 1]);
+  });
+  await t.test('indice pour distinguer deux homonymes', () => {
+    const [a, b] = ui.call('groupPersons', recs);
+    assert.equal(ui.call('personHint', a), 'lea@exemple.ca · né(e) en 1996 · 2 cours');
+    assert.equal(ui.call('personHint', b), '1 cours');
+  });
+  await t.test('nom comparé sans majuscules ni accents', () => {
+    assert.equal(ui.call('normPersonName', recs[0]), ui.call('normPersonName', recs[2]));
+    assert.equal(ui.call('normPersonName', { firstName: '  Jean-  Pierre ', lastName: 'CÔTÉ' }), 'jean- pierre cote');
+  });
+});
+
 test('petits utilitaires', () => {
   assert.equal(ui.call('fmtBytes', 0), '0 o'); assert.equal(ui.call('fmtBytes', 1536), '1,50 Ko'); assert.equal(ui.call('fmtBytes', 300000000), '286 Mo');
   assert.equal(ui.call('daysBetween', '2026-11-14', '2026-11-21'), 7); assert.equal(ui.call('daysBetween', '2026-03-07', '2026-03-09'), 2, 'changement d\'heure');
