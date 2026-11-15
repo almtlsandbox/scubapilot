@@ -515,10 +515,16 @@ function computeCourseStats(root, courseId, course) {
     const postC = countDocGroup(sData.postDocs, type.postDocs);
     totalPre += preC.total; donePre += preC.done;
     totalPost += postC.total; donePost += postC.done;
+    const mailLog = Array.isArray(sData.mailLog) ? sData.mailLog : [];
     students.push({
       folder: sName, firstName: sData.firstName, lastName: sData.lastName,
       prePercent: preC.total ? Math.round(100 * preC.done / preC.total) : 100,
-      postPercent: postC.total ? Math.round(100 * postC.done / postC.total) : 100
+      postPercent: postC.total ? Math.round(100 * postC.done / postC.total) : 100,
+      // Détails utilisés par la liste « À faire » du tableau de bord
+      preMissing: preC.total - preC.done, postMissing: postC.total - postC.done,
+      courseOnly: sData.status === 'cours',
+      certificationConfirmed: !!sData.certificationConfirmed, fileTransferred: !!sData.fileTransferred,
+      hasEmail: !!sData.email, lastMail: mailLog.length ? mailLog[mailLog.length - 1] : null
     });
   }
   // Documents généraux du cours (non liés à un étudiant en particulier)
@@ -531,6 +537,7 @@ function computeCourseStats(root, courseId, course) {
     postPercent: totalPost ? Math.round(100 * donePost / totalPost) : 100,
     studentCount: students.length,
     corruptedStudents,
+    generalPreMissing: gPreC.total - gPreC.done, generalPostMissing: gPostC.total - gPostC.done,
     students
   };
 }

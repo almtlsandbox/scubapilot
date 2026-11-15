@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.10 — Novembre 2026**
+**Version 1.11 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -125,7 +125,7 @@ Vous êtes prêt : créez votre premier cours.
 
 ### 5.1 Tableau de bord
 
-Page d'accueil. Elle présente deux listes :
+Page d'accueil. Elle présente la liste **« À faire »**, puis deux listes de cours :
 
 ![Le tableau de bord](images/tableau-de-bord.jpg)
 *Le tableau de bord*
@@ -134,15 +134,35 @@ Page d'accueil. Elle présente deux listes :
 - **À venir** : le prochain cours en haut, du plus proche au plus lointain ;
 - **Cours passés** : du plus récent au plus ancien, grisés. Un cours est « passé » quand sa dernière séance est antérieure à aujourd'hui.
 
-Une colonne **Statut** résume chaque cours :
+Une colonne **Statut** résume chaque cours. Il tient compte des **dates** : un cours à venir n'est jugé que sur ses documents pré-cours.
 
 | Statut | Signification |
 |---|---|
+| 📝 À planifier | Aucune séance n'est planifiée |
+| 📋 À préparer | Le cours est à venir et des documents pré-cours manquent (orange ; **rouge** à 7 jours ou moins du début) |
+| 🗓️ Prêt | Le cours est à venir et les documents pré-cours sont complets |
+| ▶️ En cours | Aujourd'hui se situe entre la première et la dernière séance |
+| ⏳ Post-cours à compléter | Le cours est terminé et des documents manquent (orange ; **rouge** après 30 jours) |
+| 🔷 Prêt à clôturer | Le cours est terminé, tous les documents sont à 100 %, mais il n'est pas encore marqué complété |
 | ✅ Clos | Le cours a été marqué complété manuellement |
-| ⏳ En attente | Des documents pré- ou post-cours ne sont pas à 100 % |
-| 🔷 Prêt à clôturer | Tous les documents sont à 100 %, mais le cours n'est pas encore marqué complété |
 
-Au-dessus des listes : une **recherche** instantanée (nom de cours, centre ou étudiant), des **filtres** par centre et par type, et le champ **« Ouvrir la fiche globale d'un étudiant »** qui propose un étudiant au fil de la frappe.
+Survolez un statut pour voir le détail (« Débute dans 7 jours — documents pré-cours incomplets (56 %) »).
+
+#### La liste « À faire »
+
+En haut du tableau de bord, ScubaPilot rassemble ce qui demande une action, tous cours confondus. Chaque ligne mène à la fiche du cours concerné :
+
+- 📋 **documents pré-cours manquants** pour un cours qui débute dans les 14 jours (ou en cours), étudiants nommés ;
+- ✉️ **aucun courriel noté** pour certains étudiants d'un cours qui débute dans les 14 jours (voir [7.3](#73-garder-la-trace-des-envois)) ;
+- 📋 🎓 📁 pour un cours terminé : **documents manquants**, **certifications à confirmer**, **dossiers à transférer** — ou 🔷 « vous pouvez clôturer ce cours » quand tout est complet ;
+- 🧾 **facture à préparer** ou **en brouillon à soumettre** pour un cours terminé ;
+- 💵 **paiement en attente**, avec le nombre de jours et le montant.
+
+La bordure est orange pour ce qui est à faire, rouge avec la mention **Urgent** quand l'échéance est proche (cours dans 3 jours ou moins) ou dépassée de plus de 30 jours. Les six premières lignes sont affichées ; un bouton montre les suivantes.
+
+Au-dessus des listes de cours : une **recherche** instantanée (nom de cours, centre ou étudiant), des **filtres** par centre, par type et par **état de la facture** (sans facture, brouillon, soumise, payée), et le champ **« Ouvrir la fiche globale d'un étudiant »** qui propose un étudiant au fil de la frappe.
+
+Le bouton **« 💰 Suivi des factures »** ouvre la page des factures (voir [9.5](#95-suivi-des-factures-et-export)).
 
 Le bouton **« 📋 Sommaire des activités accomplies »** ouvre un rapport imprimable de tous vos cours (voir [section 10](#10-rapports-et-sommaire)).
 
@@ -271,7 +291,7 @@ L'application n'envoie pas de courriel elle-même et n'ouvre aucun logiciel de m
 
 ### 7.1 Deux façons d'écrire
 
-- **Un email groupé** : un seul message, adressé à vous-même (« À »), avec un CC configurable (ex. le centre) et en **copie cachée** : tous les étudiants du cours, les coéquipiers des séances et votre BCC par défaut. Comme le message n'est pas personnalisé, `{prenom}`, `{nom}` et `{liste_docs_manquants}` restent vides : préférez `{liste_etudiants}`.
+- **Un email groupé** : un seul message, adressé à vous-même (« À »), avec un CC configurable (ex. le centre) et en **copie cachée** : tous les étudiants du cours, les coéquipiers des séances et votre BCC par défaut. Comme le message n'est pas personnalisé (« Bonjour {prenom}, » y devient simplement « Bonjour, »), `{prenom}`, `{nom}` et `{liste_docs_manquants}` restent vides : préférez `{liste_etudiants}`.
 - **Un email par étudiant** : un message distinct avec ses documents manquants, chacun avec ses boutons 📋 pour l'adresse, l'objet et le message. Utile pour les relances. Le bouton **✉️ Email à copier** de la fiche d'un étudiant ouvre la même chose pour un seul étudiant (objet et message préremplis si le cours a un modèle associé).
 
 Le bouton **📋 Copier la liste des emails** copie d'un coup les adresses de tous les étudiants du cours, séparées par des virgules.
@@ -298,6 +318,14 @@ Variables disponibles dans le sujet et le corps :
 | `{liste_dates_lieux_note_coequipier}` | Version narrative : « Rendez-vous le [date] à [heure], [lieu], [notes], et nous serons accompagnés de [coéquipiers] » |
 | `{date_debut}`, `{date_fin}`, `{lieu}` | Format simple |
 | `{instructeur}`, `{instructeur_padi}`, `{instructeur_tel}` | Vos coordonnées (signature) |
+
+### 7.3 Garder la trace des envois
+
+Comme ScubaPilot n'envoie rien lui-même, c'est vous qui lui dites qu'un courriel est parti : cliquez sur **✔ Marquer comme envoyé** (sous l'email groupé, sous chaque email individuel, ou dans la fenêtre « Email à copier » d'un étudiant). La date du jour et le modèle utilisé sont alors notés dans la fiche de chaque étudiant concerné.
+
+- Dans la fiche d'un étudiant, une ligne indique le **dernier courriel noté** ; survolez-la pour voir l'historique.
+- La carte « Communications » résume pour quels étudiants aucun envoi n'est noté.
+- La liste « À faire » du tableau de bord signale les cours proches dont certains étudiants n'ont reçu aucun courriel noté.
 
 ## 8. Certification et transfert de dossier
 
@@ -367,6 +395,20 @@ Dans l'éditeur de facture, la carte **« 5 · Suivi de la facture »** permet d
 - **Payée** : même principe, avec la date de paiement.
 
 Décochez une case pour effacer sa date. Ces changements **s'enregistrent automatiquement**. Le statut apparaît ensuite à côté du bouton « Facture » dans la fiche du cours et dans la colonne **Facture** du tableau de bord (— = aucune facture, *Brouillon*, *Soumise · date* en orange, *Payée · date* en vert). Un avertissement s'affiche si la date de paiement précède la date de soumission.
+
+### 9.5 Suivi des factures et export
+
+Le menu **Factures** (ou le bouton « 💰 Suivi des factures » du tableau de bord) réunit toutes vos factures :
+
+![Le suivi des factures](images/factures-suivi.jpg)
+*Le suivi des factures : totaux, détail et répartition par centre*
+
+- **Filtres** par année (date de la facture ; l'année en cours par défaut), par centre et par statut.
+- **Quatre totaux** : facturé (taxes incluses), payé, soumis en attente de paiement, brouillons à soumettre.
+- **Tableau détaillé** avec sous-total, T.P.S., T.V.Q. et total ; cliquez une ligne pour ouvrir le cours. Un tableau **par centre** s'ajoute quand plusieurs centres sont concernés.
+- **⬇ Exporter en CSV (Excel)** : enregistre les factures affichées dans un fichier qui s'ouvre directement dans Excel (séparateur « ; », virgule décimale), pratique pour votre comptabilité ou la déclaration de taxes.
+
+Dans la fenêtre « Courriel au centre » de l'éditeur de facture, le bouton **✔ Marquer la facture comme soumise** inscrit la date du jour comme date de soumission.
 
 ## 10. Rapports et sommaire
 

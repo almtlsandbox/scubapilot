@@ -173,3 +173,26 @@ tr.course-row:focus-visible { outline-offset: -2px; background: #f0f6fa; }
 .copy-btn.copied { background: var(--green); border-color: var(--green); color: #fff; }
 .copy-field input, .copy-field textarea { margin-top: 4px; }
 .modal-box.modal-wide { max-width: 640px; max-height: 92vh; overflow-y: auto; }
+
+/* Liste « À faire » */
+.todo-list { list-style: none; margin: 0; padding: 0; }
+.todo { display: flex; align-items: flex-start; gap: 12px; padding: 9px 12px; border-left: 4px solid var(--border, #d5dde4); background: #fafcfd; border-radius: 4px; margin-bottom: 6px; font-size: 14px; }
+.todo[hidden] { display: none; }
+.todo.u1 { border-left-color: var(--orange); }
+.todo.u2 { border-left-color: var(--red); background: #fdf5f4; }
+.todo.u0 { border-left-color: var(--blue); }
+.todo > div { flex: 1; }
+.todo-icon { font-size: 18px; line-height: 1.3; }
+.todo .badge { align-self: center; }
+/* Suivi des factures */
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.stat-tile { background: #fff; border: 1px solid #dde4ea; border-top: 4px solid var(--blue); border-radius: 8px; padding: 14px 16px; }
+.stat-tile.ok { border-top-color: var(--green); }
+.stat-tile.warn { border-top-color: var(--orange); }
+.stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-light); }
+.stat-value { font-size: 24px; font-weight: 700; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tfoot td { border-top: 2px solid #c5d0d9; }
+.todo a { color: var(--blue); text-decoration: none; }
+.todo a:hover { text-decoration: underline; }
+td > .badge, td > .tag-status { white-space: nowrap; }

@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.10';
+const APP_VERSION = '1.11';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -47,7 +47,55 @@ function wireCopyButtons(container) {
     });
   });
 }
+// ---------- Trace des courriels ----------
+// ScubaPilot n'envoie rien lui-même : c'est vous qui indiquez qu'un courriel est parti, avec le
+// bouton « Marquer comme envoyé ». La date et le modèle sont notés dans la fiche de l'étudiant
+// (champ mailLog de student.json, 20 dernières entrées).
+function mailLogText(s) {
+  const log = Array.isArray(s.mailLog) ? s.mailLog : [];
+  if (!log.length) return 'Aucun courriel noté pour cet étudiant.';
+  const m = log[log.length - 1];
+  return `Dernier courriel noté : ${shortDate(m.date)}${m.template ? ' — ' + m.template : ''} (${m.kind === 'groupe' ? 'email groupé' : 'email individuel'})` + (log.length > 1 ? ` · ${log.length} au total` : '');
+}
+function mailLogHistory(s) {
+  return (Array.isArray(s.mailLog) ? s.mailLog : []).slice().reverse()
+    .map(m => `${shortDate(m.date)} — ${m.template || m.subject || 'courriel'} (${m.kind === 'groupe' ? 'groupé' : 'individuel'})`).join('\n');
+}
+async function logMailSent(course, students, entry) {
+  let done = 0;
+  for (const s of students) {
+    const log = [...(Array.isArray(s.mailLog) ? s.mailLog : []), entry].slice(-20);
+    await api('PUT', `/api/courses/${encodeURIComponent(course.id)}/students/${encodeURIComponent(s.folder)}`, { mailLog: log });
+    s.mailLog = log;
+    done++;
+  }
+  // Met à jour les lignes « Dernier courriel noté » déjà affichées.
+  document.querySelectorAll('[data-mail-log]').forEach(node => {
+    const s = students.find(x => x.folder === node.dataset.mailLog);
+    if (s) { node.textContent = mailLogText(s); node.title = mailLogHistory(s); }
+  });
+  const sum = document.querySelector('[data-mail-summary]');
+  if (sum) sum.textContent = mailSummaryText(course);
+  return done;
+}
+function mailSummaryText(course) {
+  const withMail = course.students.filter(s => s.email);
+  const never = withMail.filter(s => !(s.mailLog || []).length);
+  if (!withMail.length) return '';
+  return never.length ? `Courriels : aucun envoi noté pour ${never.length} étudiant(s) sur ${withMail.length} — ${never.map(s => s.firstName).join(', ')}.`
+    : `Courriels : un envoi est noté pour chacun des ${withMail.length} étudiant(s) ayant une adresse.`;
+}
+// Bouton « Marquer comme envoyé » : exécute run(), puis se fige sur « ✔ Noté ».
+function wireSentButton(btn, run) {
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try { await run(); btn.textContent = '✔ Noté'; btn.classList.remove('secondary'); }
+    catch (e) { btn.disabled = false; toast('Erreur : ' + friendlyError(e), true); }
+  });
+}
+
 // Fenêtre « courriel à copier » : destinataire, objet et message, chacun avec son bouton copier.
+// o.action = { label, run } ajoute un bouton d'action (ex. « Marquer comme envoyé »).
 function showMailModal(o) {
   const overlay = el(`
     <div class="modal-overlay">
@@ -58,7 +106,10 @@ function showMailModal(o) {
         ${copyFieldHtml({ label: 'Objet', value: o.subject })}
         ${copyFieldHtml({ label: 'Message', value: o.body, area: true, minHeight: 200 })}
         ${o.note ? `<p class="muted">${escapeHtml(o.note)}</p>` : ''}
-        <div class="actions-inline" style="justify-content:flex-end"><button class="btn secondary" id="mail-modal-close">Fermer</button></div>
+        <div class="actions-inline" style="justify-content:flex-end">
+          ${o.action ? `<button class="btn secondary" id="mail-modal-action">${escapeHtml(o.action.label)}</button>` : ''}
+          <button class="btn secondary" id="mail-modal-close">Fermer</button>
+        </div>
       </div>
     </div>
   `);
@@ -70,6 +121,7 @@ function showMailModal(o) {
   document.addEventListener('keydown', onKey);
   overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
   overlay.querySelector('#mail-modal-close').addEventListener('click', close);
+  if (o.action) wireSentButton(overlay.querySelector('#mail-modal-action'), o.action.run);
   setTimeout(() => { const b = overlay.querySelector('.copy-btn'); if (b) b.focus(); }, 0);
 }
 
@@ -423,6 +475,7 @@ async function route() {
       return;
     }
     if (view === 'dashboard') { document.querySelector('[data-route=dashboard]').classList.add('active'); await renderDashboard(); }
+    else if (view === 'invoices') { document.querySelector('[data-route=invoices]').classList.add('active'); await renderInvoices(); }
     else if (view === 'new-course') { document.querySelector('[data-route=new-course]').classList.add('active'); renderNewCourse(); }
     else if (view === 'settings') { document.querySelector('[data-route=settings]').classList.add('active'); renderSettings(); }
     else if (view === 'course') { await renderCourseDetail(decodeURIComponent(rest.join('/'))); }
@@ -481,10 +534,105 @@ function renderNoRoot() {
 // Statut global d'un cours pour la liste du tableau de bord : "Clos" (marqué complété
 // manuellement), "En attente" (documents pré/post pas encore à 100%), ou "Prêt à clôturer"
 // (tous les documents sont collectés mais le cours n'a pas encore été marqué complété).
+// Dates d'un cours : première et dernière séance (ISO), ou null s'il n'y a aucune séance.
+function courseDates(c) {
+  const dates = (c.sessions || []).map(s => s.date).filter(Boolean).sort();
+  return { first: dates.length ? dates[0] : null, last: dates.length ? dates[dates.length - 1] : null };
+}
+// Nombre de jours de isoA à isoB (positif si isoB est après isoA).
+function daysBetween(isoA, isoB) {
+  return Math.round((new Date(isoB + 'T00:00:00') - new Date(isoA + 'T00:00:00')) / 86400000);
+}
+// Statut d'un cours, selon l'avancement ET les dates : un cours à venir n'est plus « en attente »
+// parce que ses documents post-cours ne sont pas cochés — ils ne peuvent pas l'être avant le cours.
 function courseStatusInfo(c) {
-  if (c.completed) return { icon: '✅', label: 'Clos', cls: 'ok' };
-  if (c.stats.prePercent < 100 || c.stats.postPercent < 100) return { icon: '⏳', label: 'En attente', cls: 'bad' };
-  return { icon: '🔷', label: 'Prêt à clôturer', cls: 'info' };
+  if (c.completed) return { key: 'closed', icon: '✅', label: 'Clos', cls: 'ok' };
+  const today = todayISO(), d = courseDates(c), st = c.stats || {};
+  if (!d.first) return { key: 'unplanned', icon: '📝', label: 'À planifier', cls: 'neutral', hint: 'Aucune séance planifiée' };
+  if (today < d.first) {
+    const days = daysBetween(today, d.first);
+    const when = days === 1 ? 'demain' : `dans ${days} jours`;
+    if (st.prePercent < 100) return { key: 'prepare', icon: '📋', label: 'À préparer', cls: days <= 7 ? 'bad' : 'warn', hint: `Débute ${when} — documents pré-cours incomplets (${st.prePercent} %)` };
+    return { key: 'ready', icon: '🗓️', label: 'Prêt', cls: 'ok', hint: `Débute ${when} — documents pré-cours complets` };
+  }
+  if (today <= d.last) return { key: 'running', icon: '▶️', label: 'En cours', cls: 'info', hint: st.prePercent < 100 ? `Documents pré-cours incomplets (${st.prePercent} %)` : 'Cours en cours' };
+  const since = daysBetween(d.last, today);
+  if (st.prePercent < 100 || st.postPercent < 100) return { key: 'post', icon: '⏳', label: 'Post-cours à compléter', cls: since > 30 ? 'bad' : 'warn', hint: `Terminé depuis ${since} jour(s) — documents incomplets` };
+  return { key: 'closable', icon: '🔷', label: 'Prêt à clôturer', cls: 'info', hint: 'Tous les documents sont complets' };
+}
+
+// ---------- Liste « À faire » ----------
+// Construit, à partir de tous les cours, ce qui demande une action : documents manquants des cours
+// proches, convocations pas encore envoyées, certifications et transferts en attente, factures à
+// préparer / soumettre, paiements en attente. urgency : 2 = urgent, 1 = à faire, 0 = quand vous voulez.
+function buildTodos(courses) {
+  const today = todayISO(), todos = [];
+  const names = list => list.slice(0, 3).map(s => `${s.firstName || ''} ${s.lastName || ''}`.trim()).join(', ') + (list.length > 3 ? ` et ${list.length - 3} autre(s)` : '');
+  for (const c of courses) {
+    if (c.corrupted) continue;
+    const d = courseDates(c), st = c.stats || {}, studs = st.students || [];
+    const add = (urgency, icon, text, sortDate) => todos.push({ course: c, urgency, icon, text, sortDate: sortDate || d.first || '9999' });
+    const ended = !!(d.last && d.last < today), started = !!(d.first && d.first <= today);
+    if (!c.completed && d.first) {
+      const daysTo = daysBetween(today, d.first);
+      if (!ended && daysTo <= 14) { // débute dans les 14 jours, ou en cours
+        const u = daysTo <= 3 ? 2 : 1;
+        const miss = studs.filter(s => s.preMissing > 0);
+        if (miss.length) add(u, '📋', `Documents pré-cours manquants pour ${miss.length} étudiant(s) : ${names(miss)}`);
+        if (st.generalPreMissing) add(u, '📋', `${st.generalPreMissing} document(s) général(aux) du cours à régler avant le cours`);
+        const noMail = studs.filter(s => s.hasEmail && !s.lastMail);
+        if (!started && noMail.length) add(u, '✉️', `Aucun courriel noté pour ${noMail.length} étudiant(s) : ${names(noMail)}`);
+      }
+      if (ended) {
+        const since = daysBetween(d.last, today), u = since > 30 ? 2 : 1;
+        const before = todos.length;
+        const docs = studs.filter(s => s.preMissing > 0 || s.postMissing > 0);
+        if (docs.length) add(u, '📋', `Documents manquants pour ${docs.length} étudiant(s) : ${names(docs)}`, d.last);
+        if (st.generalPreMissing + st.generalPostMissing) add(u, '📋', `${st.generalPreMissing + st.generalPostMissing} document(s) général(aux) du cours à compléter`, d.last);
+        const certif = studs.filter(s => !s.courseOnly && !s.certificationConfirmed);
+        if (certif.length) add(u, '🎓', `Certification à confirmer pour ${certif.length} étudiant(s) : ${names(certif)}`, d.last);
+        const transfer = studs.filter(s => s.courseOnly && !s.fileTransferred);
+        if (transfer.length) add(u, '📁', `Dossier à transférer pour ${transfer.length} étudiant(s) : ${names(transfer)}`, d.last);
+        if (todos.length === before) add(0, '🔷', 'Tout est complet : vous pouvez clôturer ce cours', d.last);
+      }
+    }
+    const inv = invoiceStatus(c);
+    if (ended && studs.length && inv.key === 'none') add(daysBetween(d.last, today) > 30 ? 2 : 1, '🧾', 'Facture à préparer', d.last);
+    if (ended && inv.key === 'draft') add(daysBetween(d.last, today) > 30 ? 2 : 1, '🧾', `Facture ${c.invoice.number || ''} en brouillon : à soumettre au centre`, d.last);
+    if (inv.key === 'submitted') {
+      const since = daysBetween(c.invoice.submittedDate, today);
+      let amount = '';
+      try { amount = ', ' + fmtMoney(computeInvoice(c, c.invoice).total); } catch (e) {}
+      const waiting = since <= 0 ? "Facture soumise aujourd'hui, paiement en attente" : `Paiement en attente depuis ${since} jour(s)`;
+      add(since > 30 ? 2 : (since > 14 ? 1 : 0), '💵', `${waiting} (facture ${c.invoice.number || ''}${amount})`, c.invoice.submittedDate);
+    }
+  }
+  return todos.sort((a, b) => (b.urgency - a.urgency) || String(a.sortDate).localeCompare(String(b.sortDate)));
+}
+function buildTodoCard(courses) {
+  const todos = buildTodos(courses);
+  const LIMIT = 6;
+  const item = (td, hidden) => {
+    const c = td.course, d = courseDates(c);
+    return `<li class="todo u${td.urgency}"${hidden ? ' hidden' : ''}>
+      <span class="todo-icon" aria-hidden="true">${td.icon}</span>
+      <div><a href="#/course/${encodeURIComponent(c.id)}"><strong>${escapeHtml(courseTypeLabel(c.typeCode))}</strong>${d.first ? ' — ' + escapeHtml(shortDate(d.first)) : ''}</a>
+        <span class="muted"> · ${escapeHtml(centerLabel(c.centerId))}</span><br>${escapeHtml(td.text)}</div>
+      ${td.urgency === 2 ? '<span class="badge bad">Urgent</span>' : ''}
+    </li>`;
+  };
+  const card = el(`
+    <div class="card todo-card">
+      <h2>À faire ${todos.length ? `<span class="tag-status">${todos.length}</span>` : ''}</h2>
+      ${todos.length
+        ? `<ul class="todo-list">${todos.map((td, i) => item(td, i >= LIMIT)).join('')}</ul>
+           ${todos.length > LIMIT ? `<button class="btn secondary small" id="todo-more">${todos.length - LIMIT === 1 ? "Afficher l'autre" : `Afficher les ${todos.length - LIMIT} autres`}</button>` : ''}`
+        : '<p class="muted">Rien à signaler : tout est à jour. 🎉</p>'}
+    </div>
+  `);
+  const more = card.querySelector('#todo-more');
+  if (more) more.addEventListener('click', () => { card.querySelectorAll('.todo[hidden]').forEach(li => li.removeAttribute('hidden')); more.remove(); });
+  return card;
 }
 
 function buildCourseRow(c) {
@@ -505,7 +653,7 @@ function buildCourseRow(c) {
   const status = courseStatusInfo(c);
   const tr = elRow(`
     <tr class="course-row ${c._isPast ? 'course-row-past' : ''}">
-      <td><span class="badge ${status.cls}" title="${escapeHtml(status.label)}">${status.icon} ${escapeHtml(status.label)}</span></td>
+      <td><span class="${status.cls === 'neutral' ? 'tag-status' : 'badge ' + status.cls}" title="${escapeHtml(status.hint || status.label)}">${status.icon} ${escapeHtml(status.label)}</span></td>
       <td><strong>${escapeHtml(courseTypeLabel(c.typeCode))}</strong><br><span class="muted">${escapeHtml(c.id)}</span></td>
       <td>${dateText} ${c._isPast ? '<span class="tag-status">Passé</span>' : ''}</td>
       <td>${escapeHtml(siteText)}</td>
@@ -541,6 +689,7 @@ function buildCourseTable(list) {
 function courseMatchesFilters(c, filters) {
   if (filters.centerId && c.centerId !== filters.centerId) return false;
   if (filters.typeCode && c.typeCode !== filters.typeCode) return false;
+  if (filters.invoice && invoiceStatus(c).key !== filters.invoice) return false;
   const q = filters.q;
   if (!q) return true;
   const haystacks = [
@@ -554,9 +703,12 @@ async function renderDashboard() {
   const courses = await api('GET', '/api/courses');
   const app = document.getElementById('app');
   app.innerHTML = `
-    <div class="actions-inline" style="justify-content:space-between">
+    <div class="actions-inline" style="justify-content:space-between;margin:0 0 16px">
       <h1 style="margin:0">Tableau de bord</h1>
-      <button class="btn secondary small" id="summary-btn">📋 Sommaire des activités accomplies</button>
+      <div class="actions-inline" style="margin:0">
+        <a class="btn secondary small" href="#/invoices">💰 Suivi des factures</a>
+        <button class="btn secondary small" id="summary-btn">📋 Sommaire des activités accomplies</button>
+      </div>
     </div>
   `;
   document.getElementById('summary-btn').addEventListener('click', () => exportActivitySummary(courses));
@@ -592,6 +744,16 @@ async function renderDashboard() {
           <label for="dash-filter-type">Type de cours</label>
           <select id="dash-filter-type"><option value="">Tous les types</option>${typeOptions}</select>
         </div>
+        <div>
+          <label for="dash-filter-invoice">Facture</label>
+          <select id="dash-filter-invoice">
+            <option value="">Toutes</option>
+            <option value="none">Sans facture</option>
+            <option value="draft">Brouillon (à soumettre)</option>
+            <option value="submitted">Soumise (paiement en attente)</option>
+            <option value="paid">Payée</option>
+          </select>
+        </div>
       </div>
       <div class="autocomplete" style="margin-top:10px;max-width:360px">
         <label for="dash-student-search">Ouvrir la fiche globale d'un étudiant (tous ses cours)</label>
@@ -600,6 +762,7 @@ async function renderDashboard() {
       </div>
     </div>
   `);
+  app.appendChild(buildTodoCard(courses));
   app.appendChild(filterBar);
 
   const resultsBox = el('<div></div>');
@@ -609,7 +772,8 @@ async function renderDashboard() {
     const filters = {
       q: filterBar.querySelector('#dash-search').value.trim().toLowerCase(),
       centerId: filterBar.querySelector('#dash-filter-center').value,
-      typeCode: filterBar.querySelector('#dash-filter-type').value
+      typeCode: filterBar.querySelector('#dash-filter-type').value,
+      invoice: filterBar.querySelector('#dash-filter-invoice').value
     };
     const filtered = courses.filter(c => courseMatchesFilters(c, filters));
     const upcoming = filtered.filter(c => !c._isPast)
@@ -640,6 +804,7 @@ async function renderDashboard() {
   });
   filterBar.querySelector('#dash-filter-center').addEventListener('change', renderResults);
   filterBar.querySelector('#dash-filter-type').addEventListener('change', renderResults);
+  filterBar.querySelector('#dash-filter-invoice').addEventListener('change', renderResults);
 
   const studentSearchInput = filterBar.querySelector('#dash-student-search');
   const studentListBox = filterBar.querySelector('.autocomplete-list');
@@ -670,6 +835,115 @@ async function renderDashboard() {
   });
 
   renderResults();
+}
+
+// ---------- Suivi des factures : toutes les factures, totaux, export CSV ----------
+async function renderInvoices() {
+  const courses = await api('GET', '/api/courses');
+  const app = document.getElementById('app');
+  const rows = [];
+  for (const c of courses) {
+    if (c.corrupted || !c.invoice) continue;
+    const inv = c.invoice;
+    let calc = { subtotal: 0, tps: 0, tvq: 0, total: 0 };
+    try { calc = computeInvoice(c, inv); } catch (e) {}
+    const st = invoiceStatus(c);
+    rows.push({ c, inv, calc, st, date: inv.date || c.invoiceDate || '', year: String(inv.date || c.invoiceDate || '').slice(0, 4), centerId: inv.centerId || c.centerId || '' });
+  }
+  rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.inv.number || '').localeCompare(String(a.inv.number || '')));
+  const years = [...new Set(rows.map(r => r.year).filter(Boolean))].sort().reverse();
+  const thisYear = todayISO().slice(0, 4);
+  const centerIds = [...new Set(rows.map(r => r.centerId).filter(Boolean))];
+  app.innerHTML = `
+    <div class="actions-inline" style="justify-content:space-between;margin:0 0 16px">
+      <h1 style="margin:0">Suivi des factures</h1>
+      <button class="btn secondary small" id="inv-csv">⬇ Exporter en CSV (Excel)</button>
+    </div>
+    <div class="card">
+      <div class="row" style="align-items:flex-end">
+        <div><label for="invl-year">Année (date de la facture)</label>
+          <select id="invl-year"><option value="">Toutes les années</option>${years.map(y => `<option value="${y}" ${y === thisYear ? 'selected' : ''}>${y}</option>`).join('')}</select></div>
+        <div><label for="invl-center">Centre</label>
+          <select id="invl-center"><option value="">Tous les centres</option>${centerIds.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(centerLabel(id))}</option>`).join('')}</select></div>
+        <div><label for="invl-status">Statut</label>
+          <select id="invl-status"><option value="">Tous</option><option value="draft">Brouillon (à soumettre)</option><option value="submitted">Soumise (paiement en attente)</option><option value="paid">Payée</option></select></div>
+      </div>
+    </div>
+    <div id="invl-results"></div>
+  `;
+  const box = app.querySelector('#invl-results');
+  let current = [];
+  const sum = (list, f) => list.reduce((a, r) => a + f(r), 0);
+  function render() {
+    const y = app.querySelector('#invl-year').value, ce = app.querySelector('#invl-center').value, s = app.querySelector('#invl-status').value;
+    current = rows.filter(r => (!y || r.year === y) && (!ce || r.centerId === ce) && (!s || r.st.key === s));
+    if (!rows.length) { box.innerHTML = '<div class="card"><p class="muted">Aucune facture pour l\'instant. Une facture se prépare depuis la fiche d\'un cours (bouton « Facture »).</p></div>'; return; }
+    if (!current.length) { box.innerHTML = '<div class="card"><p class="muted">Aucune facture ne correspond à ces filtres.</p></div>'; return; }
+    const by = key => current.filter(r => r.st.key === key);
+    const tile = (label, list, cls) => `<div class="stat-tile ${cls || ''}"><div class="stat-label">${label}</div><div class="stat-value">${fmtMoney(sum(list, r => r.calc.total))}</div><div class="muted">${list.length} facture(s)</div></div>`;
+    const centers = [...new Set(current.map(r => r.centerId))];
+    box.innerHTML = `
+      <div class="stat-tiles">
+        ${tile('Total facturé (taxes incluses)', current)}
+        ${tile('Payé', by('paid'), 'ok')}
+        ${tile('Soumis, en attente de paiement', by('submitted'), 'warn')}
+        ${tile('Brouillons, à soumettre', by('draft'))}
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th>N°</th><th>Date</th><th>Cours</th><th>Centre</th><th class="num">Sous-total</th><th class="num">T.P.S.</th><th class="num">T.V.Q.</th><th class="num">Total</th><th>Statut</th></tr></thead>
+          <tbody>${current.map(r => `
+            <tr class="course-row" data-id="${escapeHtml(r.c.id)}">
+              <td><strong>${escapeHtml(r.inv.number || '—')}</strong></td>
+              <td>${escapeHtml(r.date ? shortDate(r.date) : '—')}</td>
+              <td>${escapeHtml(courseTypeLabel(r.c.typeCode))}<br><span class="muted">${escapeHtml(r.c.id)}</span></td>
+              <td>${escapeHtml(centerLabel(r.centerId))}</td>
+              <td class="num">${fmtMoney(r.calc.subtotal)}</td><td class="num">${fmtMoney(r.calc.tps)}</td><td class="num">${fmtMoney(r.calc.tvq)}</td>
+              <td class="num"><strong>${fmtMoney(r.calc.total)}</strong></td>
+              <td>${invoiceBadgeHtml(r.c, true)}</td>
+            </tr>`).join('')}
+          </tbody>
+          <tfoot><tr><td colspan="4"><strong>Total (${current.length})</strong></td>
+            <td class="num"><strong>${fmtMoney(sum(current, r => r.calc.subtotal))}</strong></td><td class="num"><strong>${fmtMoney(sum(current, r => r.calc.tps))}</strong></td>
+            <td class="num"><strong>${fmtMoney(sum(current, r => r.calc.tvq))}</strong></td><td class="num"><strong>${fmtMoney(sum(current, r => r.calc.total))}</strong></td><td></td></tr></tfoot>
+        </table>
+      </div>
+      ${centers.length > 1 ? `
+      <div class="card">
+        <h2>Par centre</h2>
+        <table>
+          <thead><tr><th>Centre</th><th class="num">Factures</th><th class="num">Total facturé</th><th class="num">Payé</th><th class="num">En attente</th></tr></thead>
+          <tbody>${centers.map(id => { const l = current.filter(r => r.centerId === id); return `
+            <tr><td>${escapeHtml(centerLabel(id))}</td><td class="num">${l.length}</td><td class="num">${fmtMoney(sum(l, r => r.calc.total))}</td>
+              <td class="num">${fmtMoney(sum(l.filter(r => r.st.key === 'paid'), r => r.calc.total))}</td>
+              <td class="num">${fmtMoney(sum(l.filter(r => r.st.key !== 'paid'), r => r.calc.total))}</td></tr>`; }).join('')}
+          </tbody>
+        </table>
+      </div>` : ''}
+    `;
+    box.querySelectorAll('tr.course-row').forEach(tr => {
+      tr.addEventListener('click', () => location.hash = '#/course/' + encodeURIComponent(tr.dataset.id));
+      makeActivatable(tr, 'link', 'Ouvrir le cours ' + tr.dataset.id);
+    });
+  }
+  ['#invl-year', '#invl-center', '#invl-status'].forEach(sel => app.querySelector(sel).addEventListener('change', render));
+  app.querySelector('#inv-csv').addEventListener('click', () => {
+    if (!current.length) { toast('Aucune facture à exporter', true); return; }
+    // Séparateur « ; » et virgule décimale : s'ouvre directement dans Excel en français. BOM pour les accents.
+    const num = n => (Math.round(n * 100) / 100).toFixed(2).replace('.', ',');
+    const cell = v => { v = String(v == null ? '' : v); return /[";\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const head = ['Numéro', 'Date', 'Cours', 'Type de cours', 'Centre', 'Référence', 'Sous-total', 'TPS', 'TVQ', 'Total', 'Statut', 'Soumise le', 'Payée le'];
+    const lines = current.map(r => [r.inv.number || '', r.date, r.c.id, courseTypeLabel(r.c.typeCode), centerLabel(r.centerId), r.inv.ref || '',
+      num(r.calc.subtotal), num(r.calc.tps), num(r.calc.tvq), num(r.calc.total), r.st.short, r.inv.submittedDate || '', r.inv.paidDate || ''].map(cell).join(';'));
+    const blob = new Blob(['\uFEFF' + [head.join(';'), ...lines].join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ScubaPilot-factures-${app.querySelector('#invl-year').value || 'toutes'}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast(`${current.length} facture(s) exportée(s)`);
+  });
+  render();
 }
 
 // ---------- Sommaire global des activités accomplies (tous cours confondus) ----------
@@ -1204,10 +1478,16 @@ function renderEmailBatch(box, course, type, tpl) {
           ${copyFieldHtml({ label: 'À', value: c.student.email, cls: 'em-to' })}
           ${copyFieldHtml({ label: 'Objet', value: c.subject, cls: 'em-subject' })}
           ${copyFieldHtml({ label: 'Message', value: c.body, cls: 'em-body', area: true, minHeight: 140 })}
+          <div class="actions-inline"><button class="btn small secondary em-sent">✔ Marquer comme envoyé</button>
+            <span class="muted" data-mail-log="${escapeHtml(c.student.folder)}" title="${escapeHtml(mailLogHistory(c.student))}">${escapeHtml(mailLogText(c.student))}</span></div>
         </div>
       </div>
     `);
     wireCopyButtons(item);
+    wireSentButton(item.querySelector('.em-sent'), async () => {
+      await logMailSent(course, [c.student], { date: todayISO(), kind: 'individuel', template: tpl.name || '', subject: item.querySelector('.em-subject').value });
+      toast(`Envoi noté pour ${c.student.firstName} ${c.student.lastName}`);
+    });
     box.appendChild(item);
   });
 }
@@ -1241,11 +1521,17 @@ function renderGroupEmail(box, course, type, tpl) {
         ${copyFieldHtml({ id: 'grp-subject', label: 'Objet', value: subject })}
         ${copyFieldHtml({ id: 'grp-body', label: 'Message', value: body, area: true, minHeight: 200 })}
         <p class="muted" id="grp-warn"></p>
+        <div class="actions-inline"><button class="btn small secondary" id="grp-sent">✔ Marquer comme envoyé aujourd'hui</button>
+          <span class="muted">Une fois le courriel parti, notez-le : la date sera inscrite dans la fiche des ${course.students.filter(s => s.email).length} étudiant(s) ayant une adresse.</span></div>
       </div>
     </div>
   `);
   box.appendChild(item);
   wireCopyButtons(item);
+  wireSentButton(item.querySelector('#grp-sent'), async () => {
+    const n = await logMailSent(course, course.students.filter(s => s.email), { date: todayISO(), kind: 'groupe', template: tpl.name || '', subject: item.querySelector('#grp-subject').value });
+    toast(`Envoi noté pour ${n} étudiant(s)`);
+  });
   if (!state.settings.instructorEmail) {
     item.querySelector('#grp-warn').textContent = 'Astuce : renseignez votre email dans Paramètres pour préremplir le champ "À" automatiquement.';
   }
@@ -1255,6 +1541,7 @@ function buildCommunicationsCard(course, type) {
   const card = el(`<div class="card"><h2>Communications</h2></div>`);
   const emails = course.students.map(s => s.email).filter(Boolean);
   card.appendChild(el(`<p class="muted">${emails.length} étudiant(s) avec une adresse email sur ${course.students.length}.</p>`));
+  card.appendChild(el(`<p class="muted" data-mail-summary>${escapeHtml(mailSummaryText(course))}</p>`));
 
   const tplOptions = `<option value="">-- choisir un modèle --</option>` +
     state.emailTemplates.map(t => `<option value="${escapeHtml(t.id)}" ${t.id === course.emailTemplateId ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
@@ -1545,8 +1832,9 @@ function defaultInvoice(course) {
 }
 function computeInvoice(course, inv) {
   const students = course.students || [];
-  const lines = inv.groups.map(g => {
-    const members = students.filter(s => inv.assign[s.folder] === g.id);
+  const lines = (inv.groups || []).map(g => {
+    // Dans la liste des cours, les étudiants sont de simples noms de dossier ; dans la fiche, des objets.
+    const members = students.filter(s => (inv.assign || {})[typeof s === 'string' ? s : s.folder] === g.id);
     const count = members.length;
     const share = Number(g.share) || 0, price = Number(g.price) || 0;
     return { g, members, count, share, price, total: count * share * price };
@@ -1805,7 +2093,17 @@ async function openInvoiceForm(course, type) {
         const subject = `Facture ${inv.number} — ${inv.ref}`;
         const body = `Bonjour${c && c.contactName ? ' ' + c.contactName : ''},\n\nVeuillez trouver ci-joint la facture ${inv.number} (${inv.ref}), au montant de ${fmtMoney(calc.total)}.\n\nMerci,\n${state.settings.instructorName || ''}`;
         showMailModal({ title: 'Courriel au centre', to: (c && c.email) || '', subject, body,
-          note: 'Pensez à joindre la facture en PDF (bouton « Imprimer / PDF », puis « Enregistrer en PDF »).' });
+          note: 'Pensez à joindre la facture en PDF (bouton « Imprimer / PDF », puis « Enregistrer en PDF »).',
+          action: inv.submittedDate ? null : { label: '✔ Marquer la facture comme soumise', run: async () => {
+            inv.submittedDate = todayISO();
+            const chk = page.querySelector('#inv-submitted'), dt = page.querySelector('#inv-submitted-date');
+            if (chk) chk.checked = true;
+            if (dt) { dt.value = inv.submittedDate; dt.disabled = false; }
+            await save();
+            const sumEl = page.querySelector('#inv-status-summary');
+            if (sumEl) sumEl.textContent = 'Statut : ' + invoiceStatus({ invoice: inv }).label;
+            toast('Facture marquée comme soumise');
+          } } });
       } catch (e) { toast('Erreur : ' + friendlyError(e), true); }
     }, 'Préparation...'));
 
@@ -2245,7 +2543,8 @@ function buildStudentDetails(course, type, s) {
           ${s.email ? `<button class="btn small secondary" data-act="mail">✉️ Email à copier</button>` : ''}
           <button class="btn small danger" data-act="delete-student">Supprimer</button>
         </div>
-        ${!s.email ? '<p class="muted" style="margin-top:6px">Renseignez une adresse email pour préparer un message à lui envoyer.</p>' : ''}
+        ${!s.email ? '<p class="muted" style="margin-top:6px">Renseignez une adresse email pour préparer un message à lui envoyer.</p>'
+          : `<p class="muted" style="margin-top:6px" data-mail-log="${escapeHtml(s.folder)}" title="${escapeHtml(mailLogHistory(s))}">${escapeHtml(mailLogText(s))}</p>`}
         <div class="student-files"></div>
       </div>
       <div>
@@ -2301,7 +2600,11 @@ function buildStudentDetails(course, type, s) {
   const mailBtn = wrap.querySelector('[data-act=mail]');
   if (mailBtn) mailBtn.addEventListener('click', () => showMailModal({
     title: `Courriel à ${s.firstName} ${s.lastName}`, to: s.email, subject: mailSubject, body: mailBody,
-    note: tpl ? '' : "Aucun modèle d'email n'est associé à ce cours : choisissez-en un dans l'onglet « Documents & communications » pour préremplir l'objet et le message."
+    note: tpl ? '' : "Aucun modèle d'email n'est associé à ce cours : choisissez-en un dans l'onglet « Documents & communications » pour préremplir l'objet et le message.",
+    action: { label: '✔ Marquer comme envoyé', run: async () => {
+      await logMailSent(course, [s], { date: todayISO(), kind: 'individuel', template: tpl ? tpl.name : '', subject: mailSubject });
+      toast(`Envoi noté pour ${s.firstName} ${s.lastName}`);
+    } }
   }));
   wrap.querySelector('[data-act=delete-student]').addEventListener('click', async () => {
     const ok = await showConfirmModal({
@@ -2419,7 +2722,12 @@ function buildStudentDetails(course, type, s) {
 }
 
 function mergeTemplate(tpl, ctx) {
-  return tpl.replace(/\{(\w+)\}/g, (m, k) => (ctx[k] !== undefined ? ctx[k] : m));
+  // Une variable vide (ex. {prenom} dans un email groupé) emporte l'espace qui la précède :
+  // « Bonjour {prenom}, » devient « Bonjour, » et non « Bonjour , ».
+  return tpl.replace(/([ \t]?)\{(\w+)\}/g, (m, sp, k) => {
+    if (ctx[k] === undefined) return m;
+    return ctx[k] === '' ? '' : sp + ctx[k];
+  });
 }
 
 // ---------- Champs étudiant dynamiques (basés sur data/student_fields.json) ----------
