@@ -196,3 +196,4 @@ tfoot td { border-top: 2px solid #c5d0d9; }
 .todo a { color: var(--blue); text-decoration: none; }
 .todo a:hover { text-decoration: underline; }
 td > .badge, td > .tag-status { white-space: nowrap; }
+[hidden] { display: none !important; }

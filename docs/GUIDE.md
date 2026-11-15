@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.11 — Novembre 2026**
+**Version 1.12 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -160,9 +160,9 @@ En haut du tableau de bord, ScubaPilot rassemble ce qui demande une action, tous
 
 La bordure est orange pour ce qui est à faire, rouge avec la mention **Urgent** quand l'échéance est proche (cours dans 3 jours ou moins) ou dépassée de plus de 30 jours. Les six premières lignes sont affichées ; un bouton montre les suivantes.
 
-Au-dessus des listes de cours : une **recherche** instantanée (nom de cours, centre ou étudiant), des **filtres** par centre, par type et par **état de la facture** (sans facture, brouillon, soumise, payée), et le champ **« Ouvrir la fiche globale d'un étudiant »** qui propose un étudiant au fil de la frappe.
+Au-dessus des listes de cours : une **recherche** instantanée (nom de cours, centre ou étudiant), des **filtres** par centre, par type et par **état de la facture** (sans facture, non facturé, brouillon, soumise, payée), et le champ **« Ouvrir la fiche globale d'un étudiant »** qui propose un étudiant au fil de la frappe.
 
-Le bouton **« 💰 Suivi des factures »** ouvre la page des factures (voir [9.5](#95-suivi-des-factures-et-export)).
+Le bouton **« 💰 Suivi des factures »** ouvre la page des factures (voir [9.5](#96-suivi-des-factures-et-export)).
 
 Le bouton **« 📋 Sommaire des activités accomplies »** ouvre un rapport imprimable de tous vos cours (voir [section 10](#10-rapports-et-sommaire)).
 
@@ -396,7 +396,19 @@ Dans l'éditeur de facture, la carte **« 5 · Suivi de la facture »** permet d
 
 Décochez une case pour effacer sa date. Ces changements **s'enregistrent automatiquement**. Le statut apparaît ensuite à côté du bouton « Facture » dans la fiche du cours et dans la colonne **Facture** du tableau de bord (— = aucune facture, *Brouillon*, *Soumise · date* en orange, *Payée · date* en vert). Un avertissement s'affiche si la date de paiement précède la date de soumission.
 
-### 9.5 Suivi des factures et export
+### 9.5 Cours non facturé
+
+Chaque cours est **facturé par défaut**. Si vous ne facturez pas un cours (bénévolat, cours offert, cours facturé autrement), décochez **« Ce cours est facturé »** : à la création du cours, ou plus tard dans sa fiche, à côté de « Marquer le cours comme complété » (enregistré automatiquement).
+
+Un cours non facturé :
+
+- affiche **Non facturé** dans la colonne Facture du tableau de bord, et son bouton « Facture » disparaît ;
+- ne produit **aucun rappel** de facture dans la liste « À faire » ;
+- n'apparaît pas dans le suivi des factures ni dans ses totaux.
+
+Le filtre **Facture → Non facturé** du tableau de bord permet de retrouver ces cours. Si une facture avait déjà été préparée, elle est conservée : recochez la case pour la retrouver.
+
+### 9.6 Suivi des factures et export
 
 Le menu **Factures** (ou le bouton « 💰 Suivi des factures » du tableau de bord) réunit toutes vos factures :
 

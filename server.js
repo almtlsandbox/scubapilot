@@ -620,7 +620,7 @@ app.get('/api/courses/:id', (req, res) => {
 app.post('/api/courses', (req, res) => {
   try {
     const root = getRoot();
-    const { typeCode, notes, session, emailTemplateId, centerId, instructorIds } = req.body;
+    const { typeCode, notes, session, emailTemplateId, centerId, instructorIds, billable } = req.body;
     if (!typeCode || !session || !session.date) return res.status(400).json({ error: 'MISSING_FIELDS' });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(session.date) || isNaN(new Date(session.date + 'T00:00:00'))) return res.status(400).json({ error: 'INVALID_DATE' });
     if (!centerId) return res.status(400).json({ error: 'CENTER_REQUIRED' });
@@ -642,7 +642,8 @@ app.post('/api/courses', (req, res) => {
       instructorIds: Array.isArray(instructorIds) ? instructorIds : [],
       sessions: [{ date: session.date, timeStart: session.timeStart || '', timeEnd: session.timeEnd || '', siteId: session.siteId || '', notes: session.notes || '' }],
       generalPreDocs, generalPostDocs,
-      emailTemplateId: emailTemplateId || ''
+      emailTemplateId: emailTemplateId || '',
+      billable: billable !== false // facturé par défaut ; false = sort du suivi des factures
     };
     writeJSON(path.join(cFolder, 'course.json'), course);
     res.json({ id, ...course });

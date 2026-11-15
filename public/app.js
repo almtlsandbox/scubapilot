@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.11';
+const APP_VERSION = '1.12';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -748,7 +748,8 @@ async function renderDashboard() {
           <label for="dash-filter-invoice">Facture</label>
           <select id="dash-filter-invoice">
             <option value="">Toutes</option>
-            <option value="none">Sans facture</option>
+            <option value="none">Sans facture (à préparer)</option>
+            <option value="nobill">Non facturé</option>
             <option value="draft">Brouillon (à soumettre)</option>
             <option value="submitted">Soumise (paiement en attente)</option>
             <option value="paid">Payée</option>
@@ -843,7 +844,7 @@ async function renderInvoices() {
   const app = document.getElementById('app');
   const rows = [];
   for (const c of courses) {
-    if (c.corrupted || !c.invoice) continue;
+    if (c.corrupted || !c.invoice || c.billable === false) continue;
     const inv = c.invoice;
     let calc = { subtotal: 0, tps: 0, tvq: 0, total: 0 };
     try { calc = computeInvoice(c, inv); } catch (e) {}
@@ -1041,6 +1042,7 @@ function renderNewCourse() {
       <p class="muted">Vous pourrez ajouter d'autres séances (dates/heures/lieux) et changer le modèle d'email après la création du cours.</p>
       <label for="f-notes">Notes</label>
       <textarea id="f-notes" placeholder="Notes libres sur ce cours..."></textarea>
+      <label class="checklist-item" style="margin-top:12px"><input type="checkbox" id="f-billable" checked> <span>Ce cours est facturé <span class="muted">— décochez si vous ne le facturez pas (modifiable ensuite dans la fiche du cours)</span></span></label>
       <div class="actions-inline">
         <button class="btn" id="f-submit">Créer le cours</button>
       </div>
@@ -1062,7 +1064,7 @@ function renderNewCourse() {
     if (!centerId) { document.getElementById('f-error').textContent = 'Le centre mandataire est obligatoire.'; return; }
     await withBusy(document.getElementById('f-submit'), async () => {
       try {
-        const c = await api('POST', '/api/courses', { typeCode, notes, emailTemplateId, centerId, instructorIds, session: { date, timeStart, timeEnd, siteId } });
+        const c = await api('POST', '/api/courses', { typeCode, notes, emailTemplateId, centerId, instructorIds, billable: document.getElementById('f-billable').checked, session: { date, timeStart, timeEnd, siteId } });
         toast('Cours créé : ' + c.id);
         location.hash = '#/course/' + encodeURIComponent(c.id);
       } catch (e) {
@@ -1771,6 +1773,8 @@ function shortDate(iso) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 function invoiceStatus(course) {
+  // Un cours marqué « non facturé » (billable === false) sort du suivi : ni rappel, ni total.
+  if (course && course.billable === false) return { key: 'nobill', label: "Ce cours n'est pas facturé", cls: '', short: 'Non facturé' };
   const inv = course && course.invoice;
   if (!inv) return { key: 'none', label: 'Aucune facture', cls: '', short: '—' };
   if (inv.paidDate) return { key: 'paid', label: 'Payée le ' + shortDate(inv.paidDate), cls: 'ok', short: 'Payée', date: inv.paidDate };
@@ -2174,13 +2178,17 @@ async function renderCourseDetail(id) {
         <div class="actions-inline" style="margin-top:0">
           <button class="btn secondary small" id="edit-course-btn">Modifier les notes / le centre / les instructeurs</button>
           <button class="btn secondary small" id="export-report-btn">🖨️ Exporter un rapport (imprimable)</button>
-          <button class="btn secondary small" id="export-invoice-btn">🧾 Facture</button>
+          <button class="btn secondary small" id="export-invoice-btn" ${course.billable === false ? 'hidden' : ''}>🧾 Facture</button>
           <span id="course-invoice-status" style="align-self:center">${invoiceBadgeHtml(course, true)}</span>
           <button class="btn danger small" id="delete-course-btn">Supprimer le cours</button>
         </div>
         <label class="checklist-item course-completed-toggle-label" style="margin:0">
           <input type="checkbox" id="course-completed-toggle" ${course.completed ? 'checked' : ''}>
           <span id="course-completed-toggle-text">${course.completed ? '✅ Cours complété' : '☐ Marquer le cours comme complété'}</span>
+        </label>
+        <label class="checklist-item" style="margin:0" title="Décochez si vous ne facturez pas ce cours : il sort alors du suivi des factures et des rappels.">
+          <input type="checkbox" id="course-billable-toggle" ${course.billable === false ? '' : 'checked'}>
+          <span>Ce cours est facturé</span>
         </label>
       </div>
     </div>
@@ -2247,6 +2255,16 @@ async function renderCourseDetail(id) {
     }
   });
   document.getElementById('export-invoice-btn').addEventListener('click', () => openInvoiceForm(course, type));
+  document.getElementById('course-billable-toggle').addEventListener('change', async (ev) => {
+    const billable = ev.target.checked;
+    try {
+      await api('PUT', '/api/courses/' + encodeURIComponent(course.id), { billable });
+      course.billable = billable;
+      document.getElementById('export-invoice-btn').hidden = !billable;
+      document.getElementById('course-invoice-status').innerHTML = invoiceBadgeHtml(course, true);
+      toast(billable ? 'Ce cours est facturé' : (course.invoice ? 'Cours marqué non facturé (la facture déjà préparée est conservée, mais sort du suivi)' : 'Cours marqué non facturé'));
+    } catch (e) { ev.target.checked = !billable; toast('Erreur : ' + friendlyError(e), true); }
+  });
   document.getElementById('delete-course-btn').addEventListener('click', async () => {
     const ok = await showConfirmModal({
       title: 'Supprimer ce cours ?',
