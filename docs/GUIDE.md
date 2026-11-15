@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.12 — Novembre 2026**
+**Version 1.13 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -160,6 +160,8 @@ En haut du tableau de bord, ScubaPilot rassemble ce qui demande une action, tous
 
 La bordure est orange pour ce qui est à faire, rouge avec la mention **Urgent** quand l'échéance est proche (cours dans 3 jours ou moins) ou dépassée de plus de 30 jours. Les six premières lignes sont affichées ; un bouton montre les suivantes.
 
+> **Tablette, téléphone, fenêtre étroite** : sous 900 pixels de large, le menu de gauche se replie derrière le bouton **☰** en haut à gauche, les formulaires passent sur une colonne et les tableaux trop larges défilent horizontalement dans leur carte.
+
 Au-dessus des listes de cours : une **recherche** instantanée (nom de cours, centre ou étudiant), des **filtres** par centre, par type et par **état de la facture** (sans facture, non facturé, brouillon, soumise, payée), et le champ **« Ouvrir la fiche globale d'un étudiant »** qui propose un étudiant au fil de la frappe.
 
 Le bouton **« 💰 Suivi des factures »** ouvre la page des factures (voir [9.5](#96-suivi-des-factures-et-export)).
@@ -179,14 +181,16 @@ Menu **+ Nouveau cours** :
 3. Entrez la **date** de la première séance, l'heure et le site.
    - **Date** : tapez les 8 chiffres à la suite (`17102026` devient `17/10/2026`, les `/` s'insèrent seuls) **ou** cliquez sur le bouton 📅 à droite du champ pour choisir dans un petit calendrier.
    - **Heure** : format 24 h. Tapez par exemple `930` (devient `09:30`) ou `9` (devient `09:00`), ou cliquez dans le champ pour choisir parmi les suggestions toutes les 15 minutes (de 06:00 à 22:00). Une heure invalide est effacée.
-4. Sélectionnez les **instructeurs** rattachés au cours (parmi vos coéquipiers).
+4. Cochez les **instructeurs** rattachés au cours (parmi vos coéquipiers).
 5. Choisissez au besoin un **modèle d'email** par défaut et ajoutez des notes.
+
+Les champs obligatoires sont marqués d'un astérisque. S'il en manque un, il est **encadré en rouge**, le curseur s'y place et un message indique quoi corriger.
 
 Le cours est créé dans votre répertoire racine sous le nom `TYPE_DATE` (ex. `OWD_03OCT2026`), avec un sous-dossier `Photo`.
 
 ### 5.3 La fiche d'un cours
 
-En haut : dates, sites, centre, instructeurs, dossier, pourcentages globaux de documents pré/post-cours et les actions (modifier, exporter le rapport, **🧾 Facture**, supprimer, marquer complété). Dessous, trois onglets (l'onglet actif est conservé lors des rafraîchissements) :
+En haut : dates, sites, centre, instructeurs, dossier, pourcentages globaux de documents pré/post-cours et les actions (modifier, exporter le rapport, **🧾 Facture**, marquer complété). Le bouton **Supprimer ce cours…** est volontairement à l'écart, tout en bas de la page. Dessous, trois onglets (l'onglet actif est conservé lors des rafraîchissements) :
 
 ![Fiche de cours : onglet Séances & Photos](images/cours-seances.jpg)
 *Fiche de cours : onglet Séances & Photos*
@@ -202,6 +206,7 @@ En haut : dates, sites, centre, instructeurs, dossier, pourcentages globaux de d
 - Un cours peut avoir **plusieurs séances** (théorie, piscine, fosse, mer…), chacune avec date, heure de début, heure de fin, site et notes. La **durée** est calculée automatiquement et la durée totale du cours s'affiche en haut.
 - Tous les champs sont modifiables directement dans le tableau : la valeur s'enregistre toute seule (un changement de date recharge la page pour retrier).
 - Sur chaque séance, ajoutez des **coéquipiers** via le menu « + ajouter… » ; leur courriel est inclus en copie cachée dans l'email groupé.
+- **📅 Ajouter au calendrier** : enregistre un fichier `.ics` contenant une entrée par séance (heures, lieu, coéquipiers, notes). Ouvrez-le pour l'ajouter à Outlook, Google Agenda ou au Calendrier d'Apple. Sans heure de début, la séance est inscrite sur la journée entière. Le tableau de bord a le même bouton, **📅 Calendrier des cours à venir**, pour toutes les séances à venir d'un coup.
 - La carte **Photos du cours** reçoit vos photos par glisser-déposer.
 
 **Documents & communications**
@@ -216,7 +221,7 @@ En haut : dates, sites, centre, instructeurs, dossier, pourcentages globaux de d
 Dans l'onglet **Étudiants** :
 
 - **Ajouter un étudiant** : remplissez le formulaire (prénom et nom obligatoires). Un dossier `Prénom NOM` est créé dans le dossier du cours. Si l'étudiant a déjà suivi un cours, **recherchez-le par nom** : ses coordonnées sont copiées depuis son cours précédent.
-- **Importer plusieurs étudiants (JSON)** : voir [5.9](#59-importer-un-roster-pdf).
+- **Importer plusieurs étudiants (Excel, CSV)** : voir [5.9](#59-importer-plusieurs-étudiants-excel-csv).
 
 ### 5.5 La fiche d'un étudiant (dans un cours)
 
@@ -263,13 +268,19 @@ Un même étudiant peut suivre plusieurs cours. Sa **fiche globale** (lien à c�
 - **Marquer un cours comme complété** : case en bas à droite de la carte du cours. Un badge ✅ Clos apparaît à côté du titre.
 - **Supprimer un cours ou un étudiant** le déplace dans la **corbeille** de ScubaPilot, avec tous ses documents (voir [Corbeille](#corbeille)). Il faut **retaper le nom exact** dans la fenêtre de confirmation avant que le bouton ne s'active.
 
-### 5.9 Importer un roster (PDF)
+### 5.9 Importer plusieurs étudiants (Excel, CSV)
 
-L'application n'ouvre pas les PDF elle-même. Pour importer une liste d'étudiants :
+Sur la fiche du cours, onglet Étudiants, cliquez sur **« Importer plusieurs étudiants (Excel, CSV) »** :
 
-1. Donnez le PDF à Claude (ou un autre assistant) en demandant un tableau JSON d'étudiants avec `firstName`, `lastName`, `email`, `phoneCell`, etc.
-2. Sur la fiche du cours, cliquez sur **« Importer plusieurs étudiants (JSON) »**, collez le résultat et cliquez sur **Importer**.
-3. Les étudiants et leurs dossiers sont créés ; les doublons (même prénom et nom dans ce cours) sont ignorés et listés.
+1. Dans Excel (ou Google Sheets), sélectionnez les lignes de vos étudiants, avec ou sans la ligne de titres, et copiez (Ctrl+C). Collez dans la zone de texte (Ctrl+V). Vous pouvez aussi **choisir un fichier .csv** (les accents des fichiers enregistrés par Excel sont reconnus).
+2. ScubaPilot affiche un **aperçu** et devine le contenu de chaque colonne : prénom, nom, nom complet (« Prénom Nom » ou « Nom, Prénom »), email, téléphones, adresse, date de naissance (`JJ/MM/AAAA` ou `AAAA-MM-JJ`), statut. Corrigez au besoin avec la liste au-dessus de chaque colonne ; une colonne « ignorée » est barrée.
+3. Les lignes sans prénom ou sans nom sont signalées en rouge et laissées de côté.
+4. Cliquez sur **Importer N étudiant(s)**. Les étudiants et leurs dossiers sont créés ; les doublons (même prénom et nom dans ce cours) sont ignorés et listés.
+
+![Import d'étudiants : aperçu et correspondance des colonnes](images/import-etudiants.jpg)
+*Import d'étudiants : aperçu et correspondance des colonnes*
+
+Un roster en PDF ? Demandez à un assistant (Claude, par exemple) d'en faire un tableau, puis collez-le. L'ancien format JSON reste accepté dans la même zone de texte.
 
 ## 6. Documents, fichiers et photos
 
@@ -368,7 +379,7 @@ Sur la fiche du cours, bouton **🧾 Facture**. L'éditeur affiche les paramètr
 
 
 1. **En-tête** — Centre à facturer (celui du cours par défaut ; changer de centre recharge ses tarifs tant que vous n'avez pas modifié les groupes), numéro (suggéré automatiquement : `ANNÉE-001`, `ANNÉE-002`…), date, « Réf. Cours » (préremplie avec le type et les dates, modifiable).
-2. **Groupes de tarification** — Pour chaque groupe : description, **part**, prix unitaire. Le total d'un groupe = nombre d'étudiants × part × prix. La part est proposée à **1 ÷ nombre d'instructeurs** (2 instructeurs → 0,5) ; modifiez le champ « Nb d'instructeurs » (toutes les parts sont recalculées) ou chaque part individuellement. Boutons **+ Groupe**, **↻ Tarifs du centre** (recharge la grille) et ✕ pour retirer un groupe.
+2. **Groupes de tarification** — Pour chaque groupe : description, **part**, prix unitaire. Le total d'un groupe = nombre d'étudiants × part × prix. La part est proposée à **1 ÷ nombre d'instructeurs** (2 instructeurs → 0,5) ; modifiez le champ « Nb d'instructeurs » (toutes les parts sont recalculées) ou chaque part individuellement. Boutons **+ Groupe**, **↻ Tarifs du centre** (recharge la grille) et ✕ pour retirer un groupe. Ces groupes sont une **copie** de la grille de tarifs des Paramètres, faite à l'ouverture de la facture : les modifier ici ne change pas la grille, et modifier la grille ne change pas une facture déjà ouverte.
 3. **Étudiants** — La liste vient du cours. Affectez chacun à un groupe (au départ, tous sont dans le premier) ; cochez « Lister les noms sous chaque groupe » selon votre préférence.
 4. **Options** — T.P.S./T.V.Q. (une taxe non cochée n'apparaît pas du tout sur la facture ; sans aucune taxe, la ligne « sous-total » disparaît aussi), logo ScubaPilot, étampe, **note libre** (préremplie « Cours … avec [collègue] » quand le cours a plusieurs instructeurs), **note kilométrage** (texte libre affiché sous la note, sans effet sur le total), et **lignes supplémentaires** (frais, ou montant négatif pour un rabais).
 5. **Suivi de la facture** — voir [9.4](#94-suivi--soumise-et-payée).

@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.12';
+const APP_VERSION = '1.13';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -517,6 +517,19 @@ function renderRootMissing(rootDir) {
   });
 }
 window.addEventListener('hashchange', route);
+
+// ---------- Menu sur petit écran (tablette, téléphone, fenêtre étroite) ----------
+// Sous 900 px de large, la barre latérale devient un panneau qu'on ouvre avec le bouton ☰.
+(function setupMobileMenu() {
+  const btn = document.getElementById('menu-toggle'), backdrop = document.getElementById('menu-backdrop');
+  if (!btn) return;
+  const setOpen = open => { document.body.classList.toggle('nav-open', open); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); };
+  btn.addEventListener('click', () => setOpen(!document.body.classList.contains('nav-open')));
+  backdrop.addEventListener('click', () => setOpen(false));
+  window.addEventListener('hashchange', () => setOpen(false));
+  document.querySelectorAll('.sidebar .nav-link').forEach(a => a.addEventListener('click', () => setOpen(false)));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') setOpen(false); });
+})();
 window.addEventListener('DOMContentLoaded', route);
 
 function renderNoRoot() {
@@ -559,6 +572,57 @@ function courseStatusInfo(c) {
   const since = daysBetween(d.last, today);
   if (st.prePercent < 100 || st.postPercent < 100) return { key: 'post', icon: '⏳', label: 'Post-cours à compléter', cls: since > 30 ? 'bad' : 'warn', hint: `Terminé depuis ${since} jour(s) — documents incomplets` };
   return { key: 'closable', icon: '🔷', label: 'Prêt à clôturer', cls: 'info', hint: 'Tous les documents sont complets' };
+}
+
+// ---------- Export des séances vers un calendrier (.ics : Outlook, Google Agenda, Apple) ----------
+function icsEscape(s) { return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
+// Une ligne iCalendar ne doit pas dépasser 75 octets : on la replie (suite = ligne commençant par une espace).
+function icsFold(line) {
+  const enc = new TextEncoder(); const out = []; let cur = '', size = 0;
+  for (const ch of line) {
+    const n = enc.encode(ch).length;
+    if (size + n > (out.length ? 74 : 75)) { out.push(cur); cur = ''; size = 0; }
+    cur += ch; size += n;
+  }
+  out.push(cur);
+  return out.join('\r\n ');
+}
+// Événements d'un cours : un par séance. Avec des heures -> plage horaire ; sans -> journée entière.
+function courseIcsEvents(course) {
+  const d2 = s => String(s).replace(/-/g, ''), t2 = s => String(s).replace(':', '') + '00';
+  const nextDay = iso => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const students = Array.isArray(course.students) ? course.students.length : 0;
+  return (course.sessions || []).filter(s => s.date).map((s, i) => {
+    const site = state.sites.find(x => x.id === s.siteId);
+    const buddies = (s.coequipierIds || []).map(id => buddyById(id)).filter(Boolean).map(b => b.name);
+    const desc = [s.notes, buddies.length ? 'Coéquipiers : ' + buddies.join(', ') : '', `Centre : ${centerLabel(course.centerId)}`, students ? `${students} étudiant(s)` : '', 'Cours ' + course.id].filter(Boolean).join('\n');
+    const lines = ['BEGIN:VEVENT', `UID:${course.id}-${s.date}-${i}@scubapilot`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '')}`];
+    if (s.timeStart) {
+      lines.push(`DTSTART:${d2(s.date)}T${t2(s.timeStart)}`);
+      // sans heure de fin : 1 h par défaut ; fin avant le début (après minuit) : lendemain
+      let endDate = s.date, endTime = s.timeEnd;
+      if (!endTime) { const [h, m] = s.timeStart.split(':').map(Number); endTime = `${String((h + 1) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`; if (h === 23) endDate = nextDay(s.date); }
+      else if (endTime <= s.timeStart) endDate = nextDay(s.date);
+      lines.push(`DTEND:${d2(endDate)}T${t2(endTime)}`);
+    } else {
+      lines.push(`DTSTART;VALUE=DATE:${d2(s.date)}`, `DTEND;VALUE=DATE:${d2(nextDay(s.date))}`);
+    }
+    lines.push(`SUMMARY:${icsEscape(courseTypeLabel(course.typeCode) + ' — ' + centerLabel(course.centerId))}`);
+    if (site) lines.push(`LOCATION:${icsEscape(site.name + (site.address ? ', ' + site.address : ''))}`);
+    lines.push(`DESCRIPTION:${icsEscape(desc)}`, 'END:VEVENT');
+    return lines;
+  });
+}
+function downloadIcs(filename, courses) {
+  const events = courses.flatMap(courseIcsEvents);
+  if (!events.length) { toast('Aucune séance datée à exporter', true); return; }
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ScubaPilot//FR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', ...events.flat(), 'END:VCALENDAR'];
+  const blob = new Blob([lines.map(icsFold).join('\r\n') + '\r\n'], { type: 'text/calendar;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast(`${events.length} séance(s) exportée(s) : ouvrez le fichier pour l'ajouter à votre calendrier`);
 }
 
 // ---------- Liste « À faire » ----------
@@ -706,6 +770,7 @@ async function renderDashboard() {
     <div class="actions-inline" style="justify-content:space-between;margin:0 0 16px">
       <h1 style="margin:0">Tableau de bord</h1>
       <div class="actions-inline" style="margin:0">
+        <button class="btn secondary small" id="ics-all-btn" title="Toutes les séances à venir, dans un fichier .ics pour Outlook, Google Agenda ou Calendrier">📅 Calendrier des cours à venir</button>
         <a class="btn secondary small" href="#/invoices">💰 Suivi des factures</a>
         <button class="btn secondary small" id="summary-btn">📋 Sommaire des activités accomplies</button>
       </div>
@@ -763,6 +828,12 @@ async function renderDashboard() {
       </div>
     </div>
   `);
+  app.querySelector('#ics-all-btn').addEventListener('click', () => {
+    const today = todayISO();
+    // seulement les séances d'aujourd'hui et à venir
+    const upcoming = courses.filter(c => !c.corrupted).map(c => ({ ...c, sessions: (c.sessions || []).filter(s => s.date && s.date >= today) })).filter(c => c.sessions.length);
+    downloadIcs('ScubaPilot-cours-a-venir.ics', upcoming);
+  });
   app.appendChild(buildTodoCard(courses));
   app.appendChild(filterBar);
 
@@ -1023,18 +1094,18 @@ function renderNewCourse() {
     ${!state.centers.length ? `<div class="setup-note">Aucun centre partenaire enregistré. <a href="#/settings">Ajoutez-en un dans Paramètres</a> avant de créer un cours — le centre mandataire est obligatoire.</div>` : ''}
     <div class="card">
       <div class="row">
-        <div><label for="f-type">Type de cours (modèle)</label><select id="f-type">${typeOptions}</select></div>
+        <div><label for="f-type">Type de cours (modèle) *</label><select id="f-type">${typeOptions}</select></div>
         <div><label for="f-center">Centre mandataire *</label><select id="f-center">${centerOptions}</select></div>
         <div><label for="f-template">Modèle d'email associé</label><select id="f-template">${tplOptions}</select></div>
       </div>
-      <label for="f-instructors" style="margin-top:16px">Instructeurs/coéquipiers de ce cours (optionnel, maintenez Ctrl/Cmd pour en choisir plusieurs)</label>
-      <select id="f-instructors" multiple size="4">
-        ${state.buddies.map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(buddyLabel(b))}</option>`).join('')}
-      </select>
+      <fieldset class="check-group" id="f-instructors">
+        <legend>Instructeurs / coéquipiers de ce cours <span class="muted">(optionnel — cochez-en un ou plusieurs)</span></legend>
+        ${state.buddies.map(b => `<label class="checklist-item"><input type="checkbox" value="${escapeHtml(b.id)}"> <span>${escapeHtml(buddyLabel(b))}</span></label>`).join('')}
+      </fieldset>
       ${!state.buddies.length ? '<p class="muted">Aucun coéquipier enregistré — ajoutez-en dans Paramètres pour pouvoir, plus tard, désigner qui a certifié chaque étudiant.</p>' : ''}
       <h3 style="margin-top:16px">Première séance</h3>
       <div class="row">
-        <div><label for="f-date">Date</label>${plainDateInputHtml('f-date', '', 'f-date')}</div>
+        <div><label for="f-date">Date *</label>${plainDateInputHtml('f-date', '', 'f-date')}</div>
         <div><label for="f-time-start">Heure de début</label>${timeInputHtml("", "", "f-time-start")}</div>
         <div><label for="f-time-end">Heure de fin</label>${timeInputHtml("", "", "f-time-end")}</div>
         <div><label for="f-site">Lieu</label><select id="f-site">${siteOptions}</select></div>
@@ -1046,10 +1117,13 @@ function renderNewCourse() {
       <div class="actions-inline">
         <button class="btn" id="f-submit">Créer le cours</button>
       </div>
-      <p class="muted" id="f-error"></p>
+      <p class="form-error" id="f-error" role="alert"></p>
+      <p class="muted">* champs obligatoires</p>
     </div>
   `;
   attachPlainDateAutoFormat(app);
+  // Dès qu'un champ en erreur est corrigé, on retire sa mise en évidence.
+  app.querySelectorAll('#f-type, #f-center, .f-date').forEach(n => ['input', 'change'].forEach(evt => n.addEventListener(evt, () => n.classList.remove('field-error'))));
   document.getElementById('f-submit').addEventListener('click', async () => {
     const typeCode = document.getElementById('f-type').value;
     const centerId = document.getElementById('f-center').value;
@@ -1059,9 +1133,21 @@ function renderNewCourse() {
     const siteId = document.getElementById('f-site').value;
     const notes = document.getElementById('f-notes').value;
     const emailTemplateId = document.getElementById('f-template').value;
-    const instructorIds = Array.from(document.getElementById('f-instructors').selectedOptions).map(o => o.value);
-    if (!typeCode || !date) { document.getElementById('f-error').textContent = 'Type et date requises (JJ/MM/AAAA).'; return; }
-    if (!centerId) { document.getElementById('f-error').textContent = 'Le centre mandataire est obligatoire.'; return; }
+    const instructorIds = Array.from(document.querySelectorAll('#f-instructors input:checked')).map(o => o.value);
+    // Validation : chaque champ fautif est encadré en rouge, le premier reçoit le curseur.
+    const dateInput = app.querySelector('.f-date');
+    const problems = [];
+    if (!typeCode) problems.push([document.getElementById('f-type'), 'choisissez un type de cours']);
+    if (!centerId) problems.push([document.getElementById('f-center'), 'choisissez le centre mandataire']);
+    if (!date) problems.push([dateInput, dateInput.value.trim() ? 'la date est invalide (format JJ/MM/AAAA)' : 'indiquez la date de la première séance']);
+    app.querySelectorAll('.field-error').forEach(n => n.classList.remove('field-error'));
+    if (problems.length) {
+      problems.forEach(([node]) => node.classList.add('field-error'));
+      document.getElementById('f-error').textContent = 'À corriger : ' + problems.map(p2 => p2[1]).join(' ; ') + '.';
+      problems[0][0].focus();
+      return;
+    }
+    document.getElementById('f-error').textContent = '';
     await withBusy(document.getElementById('f-submit'), async () => {
       try {
         const c = await api('POST', '/api/courses', { typeCode, notes, emailTemplateId, centerId, instructorIds, billable: document.getElementById('f-billable').checked, session: { date, timeStart, timeEnd, siteId } });
@@ -1238,8 +1324,9 @@ function buildCoequipierCell(course, realIdx, persistSessions) {
 
 function buildSessionsCard(course) {
   const totalDuration = totalSessionsDuration(course.sessions);
-  const card = el(`<div class="card"><h2>Séances (date / heure / lieu)</h2>${totalDuration ? `<p class="muted">Durée totale du cours : <strong>${totalDuration}</strong> (utile pour la facturation)</p>` : ''}</div>`);
+  const card = el(`<div class="card"><div class="actions-inline" style="justify-content:space-between;margin-top:0"><h2 style="margin:0">Séances (date / heure / lieu)</h2><button class="btn small secondary" id="ics-course-btn" title="Fichier .ics à ouvrir dans Outlook, Google Agenda ou Calendrier">📅 Ajouter au calendrier</button></div>${totalDuration ? `<p class="muted">Durée totale du cours : <strong>${totalDuration}</strong> (utile pour la facturation)</p>` : ''}</div>`);
   course.sessions = course.sessions || [];
+  card.querySelector('#ics-course-btn').addEventListener('click', () => downloadIcs(`ScubaPilot-${course.id}.ics`, [course]));
   const siteOptionsHtml = (selectedId) => `<option value="">-- choisir --</option>` +
     state.sites.map(s => `<option value="${escapeHtml(s.id)}" ${s.id === selectedId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
   const sortedIdx = course.sessions.map((s, i) => i).sort((a, b) => (course.sessions[a].date || '').localeCompare(course.sessions[b].date || ''));
@@ -1962,6 +2049,7 @@ async function openInvoiceForm(course, type) {
           <label for="inv-ref">Réf. cours (modifiable)</label><input id="inv-ref" value="${escapeHtml(inv.ref)}">
         </div>
         <div class="card"><h3>2 · Groupes de tarification</h3>
+          <p class="muted">Un groupe = un tarif par étudiant. Ces groupes sont <strong>copiés</strong> de votre grille de tarifs (Paramètres → Facturation) à l'ouverture de la facture : vous pouvez les modifier ici sans toucher à la grille, et inversement. « ↻ Tarifs du centre » recopie la grille.</p>
           <div class="row"><div><label for="inv-icount">Nb d'instructeurs sur le cours (part = 1 ÷ n)</label><input type="number" min="1" step="1" id="inv-icount" value="${inv.instructorCount}"></div>
           <div style="align-self:flex-end"><button class="btn secondary small" id="inv-reload">↻ Tarifs du centre</button> <button class="btn secondary small" id="inv-addgroup">+ Groupe</button></div></div>
           <table class="inv-edit" style="width:100%"><thead><tr><th>Description</th><th>Nb</th><th>Part</th><th>Prix unit.</th><th>Total</th><th></th></tr></thead><tbody id="inv-groups"></tbody></table>
@@ -2180,7 +2268,6 @@ async function renderCourseDetail(id) {
           <button class="btn secondary small" id="export-report-btn">🖨️ Exporter un rapport (imprimable)</button>
           <button class="btn secondary small" id="export-invoice-btn" ${course.billable === false ? 'hidden' : ''}>🧾 Facture</button>
           <span id="course-invoice-status" style="align-self:center">${invoiceBadgeHtml(course, true)}</span>
-          <button class="btn danger small" id="delete-course-btn">Supprimer le cours</button>
         </div>
         <label class="checklist-item course-completed-toggle-label" style="margin:0">
           <input type="checkbox" id="course-completed-toggle" ${course.completed ? 'checked' : ''}>
@@ -2211,7 +2298,12 @@ async function renderCourseDetail(id) {
     <div class="tab-panel" data-panel="etudiants">
       <div id="students-list"></div>
       <button class="btn" id="add-student-btn">+ Ajouter un étudiant</button>
-      <button class="btn secondary" id="bulk-import-btn">Importer plusieurs étudiants (JSON)</button>
+      <button class="btn secondary" id="bulk-import-btn">Importer plusieurs étudiants (Excel, CSV)</button>
+    </div>
+
+    <div class="danger-zone">
+      <span class="muted">Ce cours n'a plus lieu d'être ? Il sera déplacé dans la corbeille (restaurable depuis Paramètres).</span>
+      <button class="btn danger small" id="delete-course-btn">Supprimer ce cours…</button>
     </div>
   `;
 
@@ -3007,7 +3099,8 @@ function renderAddStudentForm(course, type) {
       <p class="muted" id="as-error"></p>
     </div>
   `);
-  document.getElementById('app').appendChild(box);
+  // Dans l'onglet Étudiants, au-dessus de la zone « Supprimer ce cours ».
+  (document.querySelector('.tab-panel[data-panel="etudiants"]') || document.getElementById('app')).appendChild(box);
   box.scrollIntoView({ behavior: 'smooth' });
   attachDateAutoFormat(box);
 
@@ -3059,36 +3152,191 @@ function renderAddStudentForm(course, type) {
 }
 
 // Import de plusieurs étudiants à partir d'un JSON collé (ex: généré par Claude à partir d'un roster PDF).
+// ---------- Import de plusieurs étudiants : tableau collé depuis Excel, fichier CSV, ou JSON ----------
+// Lit un texte tabulaire (séparateur tabulation, point-virgule ou virgule ; guillemets gérés).
+function parseTable(text) {
+  text = String(text || '').replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  const sample = text.split('\n').slice(0, 10).join('\n');
+  const count = ch => { let n = 0, q = false; for (const c of sample) { if (c === '"') q = !q; else if (c === ch && !q) n++; } return n; };
+  const delim = [['\t', count('\t')], [';', count(';')], [',', count(',')]].sort((a, b) => b[1] - a[1])[0];
+  const d = delim[1] > 0 ? delim[0] : '\t';
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"' && cell === '') q = true;
+    else if (c === d) { row.push(cell.trim()); cell = ''; }
+    else if (c === '\n') { row.push(cell.trim()); rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  row.push(cell.trim()); rows.push(row);
+  return rows.filter(r => r.some(v => v !== ''));
+}
+const IMPORT_TARGETS = [
+  ['', '— ignorer —'], ['firstName', 'Prénom'], ['lastName', 'Nom'], ['fullName', 'Nom complet (Prénom Nom, ou Nom, Prénom)'],
+  ['email', 'Email'], ['phoneCell', 'Téléphone (cellulaire)'], ['phoneHome', 'Téléphone (maison)'],
+  ['address', 'Adresse'], ['birthDate', 'Date de naissance'], ['status', 'Statut']
+];
+const normHead = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+// Devine la colonne d'après son titre.
+function guessTargetFromHeader(h) {
+  const n = normHead(h);
+  if (!n) return '';
+  if (/^(prenom|first name|firstname|given name)/.test(n)) return 'firstName';
+  if (/(nom complet|full name|^name$|^etudiant$|^participant$|^student$)/.test(n)) return 'fullName';
+  if (/^(nom|last name|lastname|surname|nom de famille|family name)/.test(n)) return 'lastName';
+  if (/(mail|courriel)/.test(n)) return 'email';
+  if (/(maison|home|domicile|residence)/.test(n) && /(tel|phone)/.test(n)) return 'phoneHome';
+  if (/(tel|phone|cell|mobile|portable)/.test(n)) return 'phoneCell';
+  if (/(adresse|address)/.test(n)) return 'address';
+  if (/(naissance|birth|ddn|dob)/.test(n)) return 'birthDate';
+  if (/(statut|status)/.test(n)) return 'status';
+  return '';
+}
+// Sans ligne de titres : devine d'après le contenu des colonnes.
+function guessTargetsFromContent(rows, nCols) {
+  const targets = new Array(nCols).fill('');
+  const col = i => rows.map(r => r[i] || '').filter(Boolean);
+  const share = (vals, re) => vals.length ? vals.filter(v => re.test(v)).length / vals.length : 0;
+  const used = new Set();
+  const take = (i, tg) => { if (!targets[i] && !used.has(tg)) { targets[i] = tg; used.add(tg); return true; } return false; };
+  for (let i = 0; i < nCols; i++) {
+    const v = col(i);
+    if (share(v, /^[^\s@]+@[^\s@]+\.[^\s@]+$/) > 0.6) take(i, 'email');
+    else if (share(v, /^\d{4}-\d{1,2}-\d{1,2}$|^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4}$/) > 0.6) take(i, 'birthDate');
+    else if (share(v, /^[+()\d][\d\s().-]{6,}$/) > 0.6) take(i, used.has('phoneCell') ? 'phoneHome' : 'phoneCell');
+  }
+  // Les deux premières colonnes de texte restantes : prénom puis nom (ou une seule : nom complet).
+  const free = []; for (let i = 0; i < nCols; i++) if (!targets[i] && share(col(i), /[A-Za-zÀ-ÿ]/) > 0.6) free.push(i);
+  if (free.length >= 2) { targets[free[0]] = 'firstName'; targets[free[1]] = 'lastName'; }
+  else if (free.length === 1) targets[free[0]] = 'fullName';
+  return targets;
+}
+function importDateToIso(v) {
+  v = String(v || '').trim();
+  let m = /^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})$/.exec(v);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(v); // jour/mois/année (usage au Québec)
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return '';
+}
+function importStatus(v) {
+  const n = normHead(v);
+  if (!n) return '';
+  if (/(both|deux|cours.*certif|certif.*cours|complet)/.test(n)) return 'both';
+  if (/certif/.test(n)) return 'certif';
+  if (/cours|course|theorie/.test(n)) return 'cours';
+  return '';
+}
+// Transforme les lignes + la correspondance des colonnes en étudiants ; note les lignes inutilisables.
+function rowsToStudents(rows, targets) {
+  const students = [], problems = [];
+  rows.forEach((r, idx) => {
+    const s = {};
+    targets.forEach((tg, i) => {
+      const v = (r[i] || '').trim();
+      if (!tg || !v) return;
+      if (tg === 'fullName') {
+        if (v.includes(',')) { const [last, first] = v.split(',').map(x => x.trim()); s.lastName = s.lastName || last; s.firstName = s.firstName || first || ''; }
+        else { const parts = v.split(/\s+/); s.firstName = s.firstName || parts[0]; s.lastName = s.lastName || parts.slice(1).join(' '); }
+      } else if (tg === 'birthDate') { const iso = importDateToIso(v); if (iso) s.birthDate = iso; else problems.push(`Ligne ${idx + 1} : date de naissance « ${v} » non reconnue (ignorée)`); }
+      else if (tg === 'status') { const st = importStatus(v); if (st) s.status = st; }
+      else s[tg] = v;
+    });
+    if (!s.firstName || !s.lastName) { problems.push(`Ligne ${idx + 1} : prénom ou nom manquant — non importée`); return; }
+    students.push(s);
+  });
+  return { students, problems };
+}
+// Lit un fichier texte en devinant son encodage (UTF-8, sinon Windows-1252 : cas des CSV enregistrés par Excel).
+async function readTextFileSmart(file) {
+  const buf = await file.arrayBuffer();
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+  catch (e) { return new TextDecoder('windows-1252').decode(buf); }
+}
 function renderBulkImportForm(course, type) {
+  const previous = document.getElementById('bulk-import-card');
+  if (previous) previous.remove();
   const box = el(`
-    <div class="card">
+    <div class="card" id="bulk-import-card">
       <h2>Importer plusieurs étudiants</h2>
-      <p class="muted">Collez un tableau JSON d'étudiants (un objet par étudiant, avec au minimum firstName et lastName).
-      Astuce : donnez votre roster PDF à Claude dans une conversation en lui demandant de générer ce JSON, puis collez-le ici.</p>
-      <textarea id="bi-json" style="min-height:180px; font-family:monospace;" placeholder='[
-  { "firstName": "Jean", "lastName": "Dupont", "email": "jean@exemple.com", "phoneCell": "514-000-0000" },
-  { "firstName": "Marie", "lastName": "Tremblay", "email": "marie@exemple.com" }
-]'></textarea>
+      <p class="muted">Dans Excel, sélectionnez les lignes de vos étudiants (avec ou sans la ligne de titres), copiez (Ctrl+C), puis collez ci-dessous (Ctrl+V). Vous pouvez aussi choisir un fichier .csv. Colonnes reconnues : prénom, nom (ou nom complet), email, téléphone, adresse, date de naissance, statut.</p>
+      <textarea id="bi-text" style="min-height:140px; font-family:monospace;" placeholder="Prénom	Nom	Email	Téléphone
+Jean	Dupont	jean@exemple.com	514-000-0000
+Marie	Tremblay	marie@exemple.com	438-000-0000"></textarea>
       <div class="actions-inline">
-        <button class="btn small" id="bi-import">Importer</button>
+        <label class="btn small secondary" style="margin:0">Choisir un fichier .csv<input type="file" id="bi-file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden></label>
         <button class="btn small secondary" id="bi-cancel">Annuler</button>
       </div>
-      <p class="muted" id="bi-error"></p>
+      <div id="bi-preview"></div>
+      <p class="form-error" id="bi-error" role="alert"></p>
       <div id="bi-result"></div>
     </div>
   `);
-  document.getElementById('app').appendChild(box);
+  // Dans l'onglet Étudiants, au-dessus de la zone « Supprimer ce cours ».
+  (document.querySelector('.tab-panel[data-panel="etudiants"]') || document.getElementById('app')).appendChild(box);
   box.scrollIntoView({ behavior: 'smooth' });
-  box.querySelector('#bi-cancel').addEventListener('click', () => box.remove());
-  box.querySelector('#bi-import').addEventListener('click', async (ev) => {
-    let list;
-    try { list = JSON.parse(box.querySelector('#bi-json').value); }
-    catch (e) { box.querySelector('#bi-error').textContent = 'JSON invalide : ' + e.message; return; }
-    if (!Array.isArray(list)) { box.querySelector('#bi-error').textContent = 'Le JSON doit être un tableau [ ... ].'; return; }
-    await withBusy(ev.currentTarget, async () => {
+  const textArea = box.querySelector('#bi-text'), preview = box.querySelector('#bi-preview'), errorEl = box.querySelector('#bi-error');
+  let rows = [], targets = [], hasHeader = false, jsonList = null;
+
+  function analyse() {
+    errorEl.textContent = ''; jsonList = null;
+    const raw = textArea.value.trim();
+    if (!raw) { rows = []; preview.innerHTML = ''; return; }
+    if (raw[0] === '[') { // ancien format JSON, toujours accepté
+      try { const l = JSON.parse(raw); if (!Array.isArray(l)) throw new Error('tableau attendu'); jsonList = l; }
+      catch (e) { preview.innerHTML = ''; errorEl.textContent = 'JSON invalide : ' + e.message; return; }
+      renderPreview(); return;
+    }
+    rows = parseTable(raw);
+    const nCols = Math.max(...rows.map(r => r.length));
+    rows.forEach(r => { while (r.length < nCols) r.push(''); });
+    const fromHead = rows[0].map(guessTargetFromHeader);
+    hasHeader = fromHead.filter(Boolean).length >= 2 || (fromHead.filter(Boolean).length === 1 && nCols <= 2);
+    targets = hasHeader ? fromHead : guessTargetsFromContent(rows, nCols);
+    renderPreview();
+  }
+  function renderPreview() {
+    if (jsonList) {
+      const ok = jsonList.filter(s => s && s.firstName && s.lastName).length;
+      preview.innerHTML = `<p style="margin-top:12px"><strong>${ok}</strong> étudiant(s) prêt(s) à importer (format JSON).</p><div class="actions-inline"><button class="btn small" id="bi-import" ${ok ? '' : 'disabled'}>Importer ${ok} étudiant(s)</button></div>`;
+      preview.querySelector('#bi-import').addEventListener('click', ev => doImport(ev.currentTarget, jsonList));
+      return;
+    }
+    const data = hasHeader ? rows.slice(1) : rows;
+    const { students, problems } = rowsToStudents(data, targets);
+    const opts = sel => IMPORT_TARGETS.map(([v, l]) => `<option value="${v}" ${v === sel ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('');
+    const shown = data.slice(0, 8);
+    preview.innerHTML = `
+      <h3 style="margin-top:16px">Vérifiez la correspondance des colonnes</h3>
+      <label class="checklist-item"><input type="checkbox" id="bi-header" ${hasHeader ? 'checked' : ''}> <span>La première ligne contient les titres des colonnes</span></label>
+      <div class="table-scroll"><table class="import-preview">
+        <thead><tr>${targets.map((tg, i) => `<th><select data-col="${i}" aria-label="Contenu de la colonne ${i + 1}">${opts(tg)}</select>${hasHeader ? `<div class="muted">${escapeHtml(rows[0][i] || '')}</div>` : ''}</th>`).join('')}</tr></thead>
+        <tbody>${shown.map(r => `<tr>${r.map((v, i) => `<td class="${targets[i] ? '' : 'ignored'}">${escapeHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table></div>
+      ${data.length > shown.length ? `<p class="muted">… et ${data.length - shown.length} autre(s) ligne(s).</p>` : ''}
+      ${problems.length ? `<p class="form-error">${problems.slice(0, 6).map(escapeHtml).join('<br>')}${problems.length > 6 ? '<br>…' : ''}</p>` : ''}
+      <div class="actions-inline"><button class="btn small" id="bi-import" ${students.length ? '' : 'disabled'}>Importer ${students.length} étudiant(s)</button></div>
+      ${students.length ? '' : '<p class="muted">Indiquez au moins quelles colonnes contiennent le prénom et le nom (ou le nom complet).</p>'}
+    `;
+    preview.querySelector('#bi-header').addEventListener('change', e => {
+      hasHeader = e.target.checked;
+      if (hasHeader) { const g = rows[0].map(guessTargetFromHeader); if (g.some(Boolean)) targets = g; }
+      renderPreview();
+    });
+    preview.querySelectorAll('select[data-col]').forEach(sel => sel.addEventListener('change', () => {
+      const i = Number(sel.dataset.col);
+      // Un même champ ne peut venir que d'une colonne : l'ancienne est remise à « ignorer ».
+      if (sel.value) targets = targets.map((tg, k) => (k !== i && tg === sel.value) ? '' : tg);
+      targets[i] = sel.value; renderPreview();
+    }));
+    preview.querySelector('#bi-import').addEventListener('click', ev => doImport(ev.currentTarget, students));
+  }
+  async function doImport(btn, list) {
+    await withBusy(btn, async () => {
       try {
         const res = await api('POST', `/api/courses/${encodeURIComponent(course.id)}/students/bulk`, { students: list });
-        box.querySelector('#bi-error').textContent = '';
+        errorEl.textContent = '';
         const resultBox = box.querySelector('#bi-result');
         resultBox.innerHTML = '';
         resultBox.appendChild(el(`<p>${res.created.length} étudiant(s) créé(s)${res.skipped.length ? ', ' + res.skipped.length + ' ignoré(s)' : ''}.</p>`));
@@ -3096,12 +3344,22 @@ function renderBulkImportForm(course, type) {
           resultBox.appendChild(el('<p class="muted">Ignorés : ' + res.skipped.map(s2 => escapeHtml(s2.name + ' (' + s2.reason + ')')).join(', ') + '</p>'));
         }
         toast(res.created.length + ' étudiant(s) importé(s)');
-        setTimeout(() => route(), 1200);
+        setTimeout(() => route(), res.skipped.length ? 3500 : 1200);
       } catch (e) {
-        box.querySelector('#bi-error').textContent = friendlyError(e);
+        errorEl.textContent = friendlyError(e);
       }
     }, 'Import en cours...');
+  }
+  let timer = null;
+  textArea.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(analyse, 150); });
+  box.querySelector('#bi-file').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try { textArea.value = await readTextFileSmart(f); analyse(); }
+    catch (err) { errorEl.textContent = 'Lecture du fichier impossible : ' + err.message; }
+    e.target.value = '';
   });
+  box.querySelector('#bi-cancel').addEventListener('click', () => box.remove());
 }
 
 async function openExplorer(courseId, studentFolder, sub) {
