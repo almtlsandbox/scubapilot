@@ -40,6 +40,7 @@ app.use(express.static(path.join(__dirname, 'public'), { setHeaders: res => res.
 const DATA_DIR = path.join(__dirname, 'data');
 const CONFIG_DIRNAME = '_ScubaPilot';
 const TRASH_DIRNAME = '_Corbeille';
+const ARCHIVE_DIRNAME = '_Archives';
 const CONFIG_FILES = ['settings.json', 'course_types.json', 'sites.json', 'student_fields.json',
   'email_templates.json', 'buddies.json', 'centers.json', 'billing.json', 'stamp.json'];
 const LOCAL_DIR = process.env.SCUBAPILOT_LOCAL_DIR ||
@@ -163,7 +164,7 @@ function isSafeSegment(name) {
 }
 function invalidPath() { return new Error('INVALID_PATH'); }
 // Dossiers de la racine réservés à l'application : jamais traités comme des cours.
-function isReservedDir(name) { return name === CONFIG_DIRNAME || name === TRASH_DIRNAME; }
+function isReservedDir(name) { return name === CONFIG_DIRNAME || name === TRASH_DIRNAME || name === ARCHIVE_DIRNAME; }
 // Vérification finale : le chemin résolu doit rester à l'intérieur du répertoire racine.
 function insideRoot(root, target) {
   const r = path.resolve(root), t = path.resolve(target);
@@ -419,7 +420,7 @@ function listTrash(root) {
     const info = readJSON(path.join(dir, d.name, 'info.json'), null) || {};
     const present = !!info.name && fs.existsSync(path.join(dir, d.name, info.name));
     return { tid: d.name, kind: info.kind || 'unknown', name: info.name || d.name, courseId: info.courseId || '',
-      studentFolder: info.studentFolder || '', deletedAt: info.deletedAt || '', restorable: present && (info.kind === 'course' || info.kind === 'student') };
+      studentFolder: info.studentFolder || '', deletedAt: info.deletedAt || '', archivedAs: info.archivedAs || '', restorable: present && (info.kind === 'course' || info.kind === 'student') };
   }).sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || ''));
 }
 app.get('/api/trash', (req, res) => { try { res.json(listTrash(getRoot())); } catch (e) { fail(res, e); } });
@@ -471,6 +472,52 @@ app.delete('/api/trash', (req, res) => {
   } catch (e) { fail(res, e); }
 });
 
+// ---------- Archivage des anciens cours ----------
+// Archiver un cours = en faire un zip complet dans <racine>/_Archives/, vérifier ce zip, puis
+// déplacer le dossier d'origine dans la corbeille. Le cours quitte les listes, mais rien n'est
+// détruit : le zip reste, et le dossier se restaure depuis la corbeille tant qu'elle n'est pas vidée.
+// Rien n'est jamais archivé automatiquement : c'est toujours une action de l'utilisateur.
+function listArchives(root) {
+  const dir = path.join(root, ARCHIVE_DIRNAME);
+  let names = [];
+  try { names = fs.readdirSync(dir).filter(n => n.toLowerCase().endsWith('.zip')); } catch (e) { return []; }
+  return names.map(n => { let st = null; try { st = fs.statSync(path.join(dir, n)); } catch (e) {} return { name: n, bytes: st ? st.size : 0, archivedAt: st ? st.mtime.toISOString() : '' }; })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+app.get('/api/archives', (req, res) => { try { const root = getRoot(); res.json({ dir: path.join(root, ARCHIVE_DIRNAME), archives: listArchives(root) }); } catch (e) { fail(res, e); } });
+const archivingNow = new Set();
+app.post('/api/courses/:id/archive', async (req, res) => {
+  let zipPath = '';
+  try {
+    const root = getRoot();
+    const id = req.params.id;
+    const cFolder = path.join(root, id);
+    if (!insideRoot(root, cFolder)) throw invalidPath();
+    if (!fs.existsSync(path.join(cFolder, 'course.json'))) return res.status(404).json({ error: 'NOT_FOUND' });
+    readJSONStrict(path.join(cFolder, 'course.json'), {}); // un cours illisible n'est pas archivé à l'aveugle
+    if (archivingNow.has(id)) return res.status(409).json({ error: 'ARCHIVE_IN_PROGRESS' });
+    archivingNow.add(id);
+    try {
+      const dir = path.join(root, ARCHIVE_DIRNAME);
+      fs.mkdirSync(dir, { recursive: true });
+      const zipName = uniqueFileName(dir, `${id}.zip`);
+      zipPath = path.join(dir, zipName);
+      const result = await createZip(zipPath, cFolder, { prefix: id, skip: (abs, d) => d.isFile() && d.name.endsWith('.tmp') });
+      // Un fichier illisible (verrouillé, pas téléchargé...) : l'archive serait incomplète. On annule tout.
+      if (result.skipped.length) {
+        try { fs.unlinkSync(zipPath); } catch (e) {}
+        return res.status(409).json({ error: 'ARCHIVE_INCOMPLETE', files: result.skipped.map(s => s.file).slice(0, 20) });
+      }
+      const tid = moveToTrash(root, cFolder, { kind: 'course', courseId: id, archivedAs: zipName });
+      res.json({ ok: true, zip: zipName, bytes: result.zipBytes, files: result.files, trashed: tid });
+    } finally { archivingNow.delete(id); }
+  } catch (e) {
+    // Si le déplacement vers la corbeille a échoué, le dossier est toujours là : le zip en double est retiré.
+    if (zipPath && fs.existsSync(path.join(getRootOrEmpty(), req.params.id, 'course.json'))) { try { fs.unlinkSync(zipPath); } catch (e2) {} }
+    fail(res, e);
+  }
+});
+
 // ---------- Emplacements & import d'anciens réglages ----------
 app.get('/api/app-info', (req, res) => {
   const rootDir = getRootOrEmpty();
@@ -480,6 +527,7 @@ app.get('/api/app-info', (req, res) => {
     version, installDir: __dirname, rootDir, localFile: LOCAL_FILE,
     configDir: rootDir ? path.join(rootDir, CONFIG_DIRNAME) : DATA_DIR,
     trashDir: rootDir ? path.join(rootDir, TRASH_DIRNAME) : '',
+    archiveDir: rootDir ? path.join(rootDir, ARCHIVE_DIRNAME) : '',
     logFile: path.join(__dirname, 'app.log'), pid: process.pid, app: 'ScubaPilot',
     rootMissing: !!rootDir && !fs.existsSync(rootDir)
   });

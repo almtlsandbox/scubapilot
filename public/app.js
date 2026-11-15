@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.15';
+const APP_VERSION = '1.16';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -150,6 +150,8 @@ function friendlyError(e) {
   }
   if (raw === 'INVALID_PATH') return "Nom de dossier invalide : l'opération a été refusée.";
   if (raw === 'INVALID_STUDENT_ID') return "Identifiant d'étudiant invalide.";
+  if (raw === 'ARCHIVE_IN_PROGRESS') return "Ce cours est déjà en cours d'archivage.";
+  if (raw === 'ARCHIVE_INCOMPLETE') return "Des fichiers du cours sont illisibles : il n'a pas été archivé.";
   if (raw === 'FILE_TOO_LARGE') return 'Fichier trop volumineux (plus de 8 Go).';
   if (raw === 'DISK_FULL') return "Le disque est plein : le fichier n'a pas été copié.";
   if (raw === 'UPLOAD_ABORTED') return "L'envoi a été interrompu : le fichier n'a pas été copié.";
@@ -627,6 +629,22 @@ function downloadIcs(filename, courses) {
   toast(`${events.length} séance(s) exportée(s) : ouvrez le fichier pour l'ajouter à votre calendrier`);
 }
 
+// ---------- Conservation des dossiers ----------
+// Durée de conservation choisie dans les Paramètres (5 ans par défaut, jamais moins).
+const RETENTION_MIN_YEARS = 5;
+function retentionYears() {
+  const n = Math.round(Number(state.settings && state.settings.retentionYears));
+  return Number.isFinite(n) && n >= RETENTION_MIN_YEARS ? n : RETENTION_MIN_YEARS;
+}
+// Cours dont la dernière séance date de plus de `years` ans : candidats à l'archivage. Un cours
+// sans séance datée n'est jamais candidat. Du plus ancien au plus récent.
+function archiveCandidates(courses, years) {
+  const today = todayISO();
+  const cutoff = `${Number(today.slice(0, 4)) - years}${today.slice(4)}`;
+  return courses.filter(c => !c.corrupted).map(c => ({ c, last: courseDates(c).last }))
+    .filter(x => x.last && x.last < cutoff).sort((a, b) => a.last.localeCompare(b.last)).map(x => x.c);
+}
+
 // ---------- Liste « À faire » ----------
 // Construit, à partir de tous les cours, ce qui demande une action : documents manquants des cours
 // proches, convocations pas encore envoyées, certifications et transferts en attente, factures à
@@ -673,6 +691,10 @@ function buildTodos(courses) {
       add(since > 30 ? 2 : (since > 14 ? 1 : 0), '💵', `${waiting} (facture ${c.invoice.number || ''}${amount})`, c.invoice.submittedDate);
     }
   }
+  // Cours qui ont dépassé la durée de conservation : un seul rappel, sans urgence, vers les Paramètres.
+  const old = archiveCandidates(courses, retentionYears());
+  if (old.length) todos.push({ course: old[0], urgency: 0, icon: '🗄️', sortDate: '9999', href: '#/settings',
+    text: `${old.length} cours ${old.length > 1 ? 'ont' : 'a'} plus de ${retentionYears()} ans : vous pouvez ${old.length > 1 ? 'les' : 'le'} archiver ou ${old.length > 1 ? 'les' : 'le'} supprimer (Paramètres → Archivage)` });
   return todos.sort((a, b) => (b.urgency - a.urgency) || String(a.sortDate).localeCompare(String(b.sortDate)));
 }
 function buildTodoCard(courses) {
@@ -682,7 +704,7 @@ function buildTodoCard(courses) {
     const c = td.course, d = courseDates(c);
     return `<li class="todo u${td.urgency}"${hidden ? ' hidden' : ''}>
       <span class="todo-icon" aria-hidden="true">${td.icon}</span>
-      <div><a href="#/course/${encodeURIComponent(c.id)}"><strong>${escapeHtml(courseTypeLabel(c.typeCode))}</strong>${d.first ? ' — ' + escapeHtml(shortDate(d.first)) : ''}</a>
+      <div><a href="${td.href || '#/course/' + encodeURIComponent(c.id)}"><strong>${escapeHtml(courseTypeLabel(c.typeCode))}</strong>${d.first ? ' — ' + escapeHtml(shortDate(d.first)) : ''}</a>
         <span class="muted"> · ${escapeHtml(centerLabel(c.centerId))}</span><br>${escapeHtml(td.text)}</div>
       ${td.urgency === 2 ? '<span class="badge bad">Urgent</span>' : ''}
     </li>`;
@@ -4288,6 +4310,7 @@ async function renderLocationsCard() {
       ${line('Application', info.installDir, `Version ${escapeHtml(info.version || APP_VERSION)}. C'est ce dossier que vous remplacez lors d'une mise à jour.`)}
       ${line('Réglages', info.configDir, info.rootDir ? 'Centres, tarifs, modèles d\'email, types de cours, étampe. Rangés avec vos cours : une mise à jour ne les touche plus.' : 'Provisoire : ils seront rangés dans le répertoire racine dès qu\'il sera choisi.')}
       ${line('Corbeille', info.trashDir, '')}
+      ${info.archiveDir ? line('Archives', info.archiveDir, 'Zips des anciens cours archivés.') : ''}
       ${line('Chemin de la racine', info.localFile, 'Propre à cet ordinateur.')}
       ${info.logFile ? line('Journal', info.logFile, 'Messages de démarrage et erreurs. Archivé automatiquement au-delà de 1 Mo.') : ''}
     </tbody></table>
@@ -4318,6 +4341,98 @@ async function renderLocationsCard() {
     } catch (e) { status.textContent = '❌ ' + friendlyError(e); }
   });
 }
+// Carte « Archivage » : durée de conservation, cours qui l'ont dépassée, archives déjà faites.
+async function renderArchiveCard() {
+  const card = document.getElementById('archive-card');
+  if (!card) return;
+  let courses, arch;
+  try { [courses, arch] = await Promise.all([api('GET', '/api/courses'), api('GET', '/api/archives')]); }
+  catch (e) { card.innerHTML = `<h2>Archivage des anciens cours</h2><p class="muted">${escapeHtml(friendlyError(e))}</p>`; return; }
+  const years = retentionYears();
+  const list = archiveCandidates(courses, years);
+  const oldest = courses.filter(c => !c.corrupted).map(c => courseDates(c).last).filter(Boolean).sort()[0];
+  card.innerHTML = `
+    <h2>Archivage des anciens cours</h2>
+    <p class="muted">Rien n'est jamais archivé ni supprimé automatiquement. ScubaPilot vous signale seulement les cours dont la dernière séance dépasse la durée de conservation ; c'est vous qui décidez, cours par cours.</p>
+    <div class="row" style="align-items:flex-end">
+      <div style="flex:0 0 260px"><label for="arch-years">Durée de conservation (années, ${RETENTION_MIN_YEARS} au minimum)</label>
+        <input id="arch-years" type="number" min="${RETENTION_MIN_YEARS}" max="50" step="1" value="${years}"></div>
+      <div style="flex:0 0 auto;min-width:0"><button class="btn small secondary" id="arch-save-years">Enregistrer</button></div>
+    </div>
+    ${list.length ? `
+      <h3 style="margin-top:18px">${list.length} cours de plus de ${years} ans</h3>
+      <table>
+        <thead><tr><th style="width:36px"><input type="checkbox" id="arch-all" aria-label="Tout sélectionner"></th><th>Dernière séance</th><th>Cours</th><th>Centre</th><th>Étudiants</th><th>Facture</th></tr></thead>
+        <tbody>${list.map(c => `
+          <tr>
+            <td><input type="checkbox" class="arch-pick" value="${escapeHtml(c.id)}" aria-label="Sélectionner ${escapeHtml(c.id)}"></td>
+            <td>${escapeHtml(shortDate(courseDates(c).last))}</td>
+            <td><a href="#/course/${encodeURIComponent(c.id)}">${escapeHtml(courseTypeLabel(c.typeCode))}</a><br><span class="muted">${escapeHtml(c.id)}</span></td>
+            <td>${escapeHtml(centerLabel(c.centerId))}</td>
+            <td>${(c.stats && c.stats.studentCount) || 0}</td>
+            <td>${invoiceBadgeHtml(c, true)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="actions-inline">
+        <button class="btn small" id="arch-zip" disabled>🗄️ Archiver la sélection</button>
+        <button class="btn danger small" id="arch-delete" disabled>Supprimer la sélection</button>
+      </div>
+      <p class="muted"><strong>Archiver</strong> : le dossier complet du cours est enregistré dans un fichier zip (dossier <code>_Archives</code>), puis retiré des listes. <strong>Supprimer</strong> : le cours est retiré sans zip. Dans les deux cas, le dossier d'origine passe par la corbeille : il n'est détruit pour de bon que lorsque vous la videz.</p>
+      <p class="form-error" id="arch-error" role="alert"></p>
+    ` : `<p style="margin-top:14px">Aucun cours n'a plus de ${years} ans${oldest ? ` (le plus ancien s'est terminé le ${escapeHtml(shortDate(oldest))})` : ''}.</p>`}
+    ${arch.archives.length ? `
+      <h3 style="margin-top:18px">Archives (${arch.archives.length})</h3>
+      <ul class="plain-list">${arch.archives.map(a => `<li><code>${escapeHtml(a.name)}</code> <span class="muted">— ${fmtBytes(a.bytes)}, archivé le ${escapeHtml(a.archivedAt ? shortDate(a.archivedAt.slice(0, 10)) : '')}</span></li>`).join('')}</ul>
+      <div class="actions-inline"><button class="btn small secondary" id="arch-open">Ouvrir le dossier des archives</button></div>
+      <p class="muted">Pour consulter un cours archivé, ouvrez son zip. Pour le remettre dans ScubaPilot, extrayez le zip dans le répertoire racine : le dossier du cours y est recréé.</p>
+    ` : ''}
+  `;
+  card.querySelector('#arch-save-years').addEventListener('click', async () => {
+    const n = Math.round(Number(card.querySelector('#arch-years').value));
+    if (!Number.isFinite(n) || n < RETENTION_MIN_YEARS) { toast(`La durée de conservation est d'au moins ${RETENTION_MIN_YEARS} ans`, true); card.querySelector('#arch-years').value = years; return; }
+    const previous = state.settings.retentionYears;
+    state.settings.retentionYears = n;
+    try { await api('PUT', '/api/settings', state.settings); toast(`Durée de conservation : ${n} ans`); renderArchiveCard(); }
+    catch (e) { state.settings.retentionYears = previous; toast('Erreur : ' + friendlyError(e), true); }
+  });
+  const openBtn = card.querySelector('#arch-open');
+  if (openBtn) openBtn.addEventListener('click', () => openExplorer('_Archives'));
+  if (!list.length) return;
+  const picks = () => [...card.querySelectorAll('.arch-pick:checked')].map(i => i.value);
+  const sync = () => { const n = picks().length; card.querySelector('#arch-zip').disabled = !n; card.querySelector('#arch-delete').disabled = !n; };
+  card.querySelectorAll('.arch-pick').forEach(i => i.addEventListener('change', sync));
+  card.querySelector('#arch-all').addEventListener('change', e => { card.querySelectorAll('.arch-pick').forEach(i => { i.checked = e.target.checked; }); sync(); });
+  const run = async (btn, ids, action, doneWord) => {
+    const errEl = card.querySelector('#arch-error'); errEl.textContent = '';
+    let ok = 0; const problems = [];
+    await withBusy(btn, async () => {
+      for (const id of ids) {
+        try { await action(id); ok++; }
+        catch (e) {
+          problems.push(e.message === 'ARCHIVE_INCOMPLETE'
+            ? `${id} : ${(e.data.files || []).length} fichier(s) illisible(s) (${(e.data.files || []).slice(0, 3).join(', ')}) — le cours n'a pas été archivé. Vérifiez que ses fichiers sont bien téléchargés sur cet ordinateur.`
+            : `${id} : ${friendlyError(e)}`);
+        }
+      }
+    }, 'En cours...');
+    if (ok) toast(`${ok} cours ${doneWord}`);
+    await renderArchiveCard(); renderTrashCard();
+    if (problems.length) { const el2 = document.querySelector('#archive-card #arch-error'); if (el2) el2.innerHTML = problems.map(escapeHtml).join('<br>'); else toast(problems[0], true); }
+  };
+  card.querySelector('#arch-zip').addEventListener('click', async ev => {
+    const ids = picks();
+    const ok = await showConfirmModal({ title: `Archiver ${ids.length} cours ?`, neutral: true, confirmText: 'Archiver',
+      message: `Chaque cours sélectionné sera enregistré dans un fichier zip (dossier <strong>_Archives</strong> du répertoire racine), puis retiré des listes de ScubaPilot. Le dossier d'origine reste dans la corbeille jusqu'à ce que vous la vidiez.` });
+    if (ok) run(ev.target, ids, id => api('POST', `/api/courses/${encodeURIComponent(id)}/archive`), 'archivé(s)');
+  });
+  card.querySelector('#arch-delete').addEventListener('click', async ev => {
+    const ids = picks();
+    const ok = await showConfirmModal({ title: `Supprimer ${ids.length} cours ?`, confirmText: 'Supprimer', requireTypeText: 'SUPPRIMER',
+      message: `Les <strong>${ids.length}</strong> cours sélectionnés, avec les dossiers et documents de leurs étudiants, seront déplacés dans la <strong>corbeille</strong>, <strong>sans archive zip</strong>. Ils seront détruits pour de bon quand vous viderez la corbeille.` });
+    if (ok) run(ev.target, ids, id => api('DELETE', `/api/courses/${encodeURIComponent(id)}`), 'déplacé(s) dans la corbeille');
+  });
+}
 async function renderTrashCard() {
   const card = document.getElementById('trash-card');
   if (!card) return;
@@ -4325,7 +4440,7 @@ async function renderTrashCard() {
   try { items = await api('GET', '/api/trash'); }
   catch (e) { card.innerHTML = `<h2>Corbeille</h2><p class="muted">${escapeHtml(friendlyError(e))}</p>`; return; }
   const when = iso => iso ? new Date(iso).toLocaleString('fr-CA', { dateStyle: 'medium', timeStyle: 'short' }) : '';
-  const label = it => it.kind === 'course' ? `Cours <strong>${escapeHtml(it.name)}</strong>`
+  const label = it => it.kind === 'course' ? `Cours <strong>${escapeHtml(it.name)}</strong>${it.archivedAs ? ` <span class="muted">— archivé dans ${escapeHtml(it.archivedAs)}</span>` : ''}`
     : it.kind === 'student' ? `Étudiant <strong>${escapeHtml(it.name)}</strong> <span class="muted">— cours ${escapeHtml(it.courseId)}</span>`
     : `<strong>${escapeHtml(it.name)}</strong>`;
   card.innerHTML = `
@@ -4420,6 +4535,11 @@ function renderSettings() {
       <p class="muted" id="s-backup-status"></p>
     </div>
 
+    <div class="card" id="archive-card">
+      <h2>Archivage des anciens cours</h2>
+      <p class="muted">Chargement...</p>
+    </div>
+
     <div class="card" id="trash-card">
       <h2>Corbeille</h2>
       <p class="muted">Chargement...</p>
@@ -4484,6 +4604,7 @@ function renderSettings() {
     }
   });
   renderLocationsCard();
+  renderArchiveCard();
   renderTrashCard();
   document.getElementById('s-backup-btn').addEventListener('click', async () => {
     const btn = document.getElementById('s-backup-btn');

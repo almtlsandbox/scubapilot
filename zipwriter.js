@@ -75,13 +75,20 @@ function writeAll(fd, buf, pos) {
  * Crée zipPath à partir du contenu de rootDir.
  * options.onProgress({ filesDone, filesTotal, bytesDone, bytesTotal, current })
  * options.skip(abs, dirent) -> true pour ignorer
+ * options.prefix : nom d'un dossier englobant à l'intérieur du zip
  * options.zip64Limit : seuil (octets) au-delà duquel on passe en ZIP64 — réglable pour les tests.
  * Renvoie { files, dirs, bytes, zipBytes, skipped: [{ file, reason }] }.
  */
 async function createZip(zipPath, rootDir, options) {
   const opts = options || {};
   const LIMIT = opts.zip64Limit || 0xFFFFFFFF;
-  const entries = listEntries(rootDir, opts.skip);
+  let entries = listEntries(rootDir, opts.skip);
+  // options.prefix : range tout le contenu dans un dossier de ce nom à l'intérieur du zip
+  // (ex. archive d'un cours : « OWD_15AOU2020/... », pour qu'une extraction recrée le dossier).
+  if (opts.prefix) {
+    const pre = String(opts.prefix).replace(/[\\/]+$/, '') + '/';
+    entries = [{ rel: pre, abs: rootDir, isDir: true, size: 0, mtime: safeMtime(rootDir) }, ...entries.map(e => ({ ...e, rel: pre + e.rel }))];
+  }
   const files = entries.filter(e => !e.isDir);
   const bytesTotal = files.reduce((s, e) => s + e.size, 0);
   const progress = { filesDone: 0, filesTotal: files.length, bytesDone: 0, bytesTotal, current: '' };

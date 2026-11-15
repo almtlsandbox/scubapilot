@@ -50,6 +50,17 @@ test('archive standard : contenu identique, noms accentués, dossiers vides', as
   } finally { rmrf(dir); }
 });
 
+test('option prefix : tout le contenu est rangé dans un dossier englobant', async () => {
+  const { dir, src, files } = makeTree();
+  try {
+    const out = path.join(dir, 'p.zip');
+    await createZip(out, src, { skip: skipTmp, prefix: 'Archive 2019' });
+    const zip = readZip(out);
+    assert.ok(zip.names.includes('Archive 2019/') && zip.names.every(n => n.startsWith('Archive 2019/')));
+    for (const [rel, data] of Object.entries(files)) assert.ok(zip.get('Archive 2019/' + rel).equals(data), rel);
+  } finally { rmrf(dir); }
+});
+
 for (const limit of [200000, 1000]) {
   test(`ZIP64 (seuil abaissé à ${limit} octets pour le test) : toujours lisible et identique`, async () => {
     const { dir, src, files } = makeTree();

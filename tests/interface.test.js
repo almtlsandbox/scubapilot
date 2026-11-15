@@ -186,6 +186,32 @@ test('export calendrier (.ics)', async (t) => {
   });
 });
 
+test('conservation des dossiers', async (t) => {
+  const c = (id, last, extra) => course({ id, sessions: [{ date: '2015-01-01' }, { date: last }].filter(s => s.date), completed: true, billable: false, ...(extra || {}) });
+  await t.test('durée par défaut : 5 ans, jamais moins', () => {
+    ui.setState({ settings: {} }); assert.equal(ui.call('retentionYears'), 5);
+    ui.setState({ settings: { retentionYears: 2 } }); assert.equal(ui.call('retentionYears'), 5);
+    ui.setState({ settings: { retentionYears: 7 } }); assert.equal(ui.call('retentionYears'), 7);
+    ui.setState({ settings: { retentionYears: 'abc' } }); assert.equal(ui.call('retentionYears'), 5);
+    ui.setState({ settings: {} });
+  });
+  await t.test("candidats : dernière séance de plus de N ans, au jour près, du plus ancien au plus récent", () => {
+    const list = [c('A', '2021-11-13'), c('B', '2021-11-14'), c('C', '2019-06-01'), c('D', '2026-01-01'), course({ id: 'E', sessions: [] }), { id: 'F', corrupted: true }];
+    assert.deepEqual(ui.call('archiveCandidates', list, 5).map(x => x.id), ['C', 'A'], 'le 14 novembre 2021 a tout juste 5 ans : pas encore');
+    assert.deepEqual(ui.call('archiveCandidates', list, 7).map(x => x.id), ['C']);
+    assert.deepEqual(ui.call('archiveCandidates', list, 10).map(x => x.id), []);
+  });
+  await t.test("c'est la DERNIÈRE séance qui compte, pas la première", () => {
+    assert.deepEqual(ui.call('archiveCandidates', [course({ id: 'X', sessions: [{ date: '2015-01-01' }, { date: '2024-01-01' }] })], 5), []);
+  });
+  await t.test('un seul rappel, sans urgence, dans la liste « À faire »', () => {
+    const r = ui.call('buildTodos', [c('A', '2019-06-01'), c('B', '2020-06-01')]);
+    assert.equal(r.length, 1); assert.equal(r[0].urgency, 0); assert.equal(r[0].href, '#/settings');
+    assert.match(r[0].text, /2 cours ont plus de 5 ans/);
+    assert.deepEqual(ui.call('buildTodos', [c('A', '2024-06-01')]), []);
+  });
+});
+
 test("personnes et homonymes", async (t) => {
   const recs = [
     { studentId: 'etu_aaaaaaaaaaaa', courseId: 'OWD_1', folder: 'Léa TREMBLAY', firstName: 'Léa', lastName: 'Tremblay', email: 'lea@exemple.ca' },

@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.15 — Novembre 2026**
+**Version 1.16 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -556,6 +556,20 @@ Depuis la version 1.8, vos réglages ne sont plus dans le dossier de l'applicati
 3. Rechargez la page (`Ctrl + F5`). Vérifiez le numéro de version en bas de la barre latérale, ou dans **Paramètres → Emplacements**.
 
 **Première mise à jour vers la 1.8 (une seule fois)** : recopiez encore votre ancien dossier `data` dans le nouveau dossier avant de lancer l'application. Au démarrage, elle déplace elle-même vos réglages vers le répertoire racine. Si vous avez oublié cette étape et que vos centres ou tarifs ont disparu : **Paramètres → Emplacements → Importer les réglages d'une ancienne installation**, puis indiquez l'ancien dossier de l'application.
+
+### Archivage des anciens cours (conservation des dossiers)
+
+Les dossiers d'étudiants contiennent des renseignements personnels et médicaux : il est prudent de ne pas les garder plus longtemps que nécessaire, sans les détruire trop tôt. Dans **Paramètres → Archivage des anciens cours** :
+
+- **Durée de conservation** : **5 ans par défaut**, jamais moins ; vous pouvez l'allonger. Elle se compte à partir de la **dernière séance** du cours.
+- La carte liste les cours qui ont dépassé cette durée. La liste « À faire » du tableau de bord le rappelle aussi, sans urgence.
+- **Rien n'est jamais archivé ni supprimé automatiquement.** Cochez les cours voulus, puis :
+  - **🗄️ Archiver la sélection** : chaque cours est enregistré dans un fichier zip complet (dossier `_Archives` du répertoire racine), puis retiré des listes. Le zip est vérifié avant que le cours ne soit retiré ; si un fichier est illisible (par exemple un fichier OneDrive pas téléchargé), le cours n'est pas archivé et vous êtes prévenu.
+  - **Supprimer la sélection** : le cours est retiré sans zip (il faut taper `SUPPRIMER` pour confirmer).
+- Dans les deux cas, le dossier d'origine passe par la **corbeille** : il n'est détruit pour de bon que lorsque vous la videz.
+- **Consulter un cours archivé** : ouvrez son zip. **Le remettre dans ScubaPilot** : extrayez le zip dans le répertoire racine, le dossier du cours y est recréé.
+
+Les archives font partie du répertoire racine : elles sont incluses dans la sauvegarde et synchronisées par OneDrive.
 
 ### Emplacements
 
