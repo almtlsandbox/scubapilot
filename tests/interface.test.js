@@ -70,7 +70,9 @@ test('facture : calcul et statut', async (t) => {
 });
 
 test('liste « À faire »', async (t) => {
-  const todos = list => ui.call('buildTodos', list).map(td => ({ u: td.urgency, text: td.text, id: td.course.id }));
+  // Sauvegarde récente : le rappel de sauvegarde (testé à part) ne se mêle pas à ces cas.
+  const recent = { lastBackup: { at: TODAY + 'T12:00:00.000Z' } };
+  const todos = list => ui.call('buildTodos', list, recent).map(td => ({ u: td.urgency, text: td.text, id: td.course && td.course.id }));
   await t.test('cours dans 7 jours : documents manquants et courriels non notés', () => {
     const r = todos([course({ sessions: [{ date: '2026-11-21' }], stats: stats(50, 0, [stud({ firstName: 'Marc', preMissing: 2 }), stud({ firstName: 'Léa', lastMail: { date: '2026-11-10' } })], { generalPreMissing: 1 }) })]);
     assert.equal(r.length, 3);
@@ -112,6 +114,35 @@ test('liste « À faire »', async (t) => {
       course({ id: 'A', sessions: [{ date: '2026-11-25' }], stats: stats(0, 0, [stud({ preMissing: 1, lastMail: {} })]) }),
       course({ id: 'B', sessions: [{ date: '2026-11-15' }], stats: stats(0, 0, [stud({ preMissing: 1, lastMail: {} })]) })]);
     assert.deepEqual(r.map(x => x.id), ['B', 'A']);
+  });
+});
+
+test('rappel de sauvegarde et copies en conflit', async (t) => {
+  const one = [course({ id: 'A', completed: true, billable: false, sessions: [{ date: '2026-10-01' }] })];
+  const backupTodo = extra => ui.call('buildTodos', one, extra).filter(x => x.title === 'Sauvegarde');
+  await t.test('jamais faite : rappel urgent', () => {
+    const r = backupTodo({}); assert.equal(r.length, 1); assert.equal(r[0].urgency, 2); assert.match(r[0].text, /Aucune sauvegarde/); assert.equal(r[0].href, '#/settings');
+  });
+  await t.test('faite il y a 30 jours ou moins : rien', () => assert.deepEqual(backupTodo({ lastBackup: { at: '2026-10-15T10:00:00Z' } }), []));
+  await t.test('plus de 30 jours : rappel ; plus de 90 jours : urgent', () => {
+    const r = backupTodo({ lastBackup: { at: '2026-10-01T10:00:00Z' } }); assert.equal(r.length, 1); assert.equal(r[0].urgency, 1); assert.match(r[0].text, /il y a 44 jours/);
+    assert.equal(backupTodo({ lastBackup: { at: '2026-07-01T10:00:00Z' } })[0].urgency, 2);
+  });
+  await t.test("la date affichée est la date locale (sauvegarde faite le soir)", () => {
+    // 00 h 40 UTC le 15 = 19 h 40 le 14 à Toronto (fuseau des tests sur GitHub : UTC, donc on vérifie la conversion elle-même)
+    const at = '2026-11-15T00:40:00.000Z', d = new Date(at);
+    const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    assert.equal(ui.call('localIsoDate', at), expected);
+  });
+  await t.test('aucun cours : pas de rappel (installation neuve)', () => assert.deepEqual(ui.call('buildTodos', [], {}), []));
+  await t.test('copie en conflit : signalée, avec son dossier', () => {
+    const r = ui.call('buildTodos', one, { lastBackup: { at: TODAY + 'T09:00:00Z' }, conflicts: [
+      { courseId: 'A', studentFolder: 'Zoé LÉVESQUE', name: 'student-BUREAU.json', original: 'student.json' },
+      { courseId: '_ScubaPilot', studentFolder: '', name: 'centers-PORTABLE.json', original: 'centers.json' }] });
+    const cf = r.filter(x => x.conflict);
+    assert.equal(cf.length, 2);
+    assert.match(cf[0].text, /student-BUREAU\.json/); assert.match(cf[0].text, /dossier de Zoé LÉVESQUE/); assert.equal(cf[0].course.id, 'A');
+    assert.match(cf[1].text, /dans vos réglages/); assert.equal(cf[1].course, null); assert.equal(cf[1].href, '#/settings');
   });
 });
 
@@ -205,10 +236,10 @@ test('conservation des dossiers', async (t) => {
     assert.deepEqual(ui.call('archiveCandidates', [course({ id: 'X', sessions: [{ date: '2015-01-01' }, { date: '2024-01-01' }] })], 5), []);
   });
   await t.test('un seul rappel, sans urgence, dans la liste « À faire »', () => {
-    const r = ui.call('buildTodos', [c('A', '2019-06-01'), c('B', '2020-06-01')]);
+    const r = ui.call('buildTodos', [c('A', '2019-06-01'), c('B', '2020-06-01')], { lastBackup: { at: TODAY + 'T09:00:00Z' } });
     assert.equal(r.length, 1); assert.equal(r[0].urgency, 0); assert.equal(r[0].href, '#/settings');
     assert.match(r[0].text, /2 cours ont plus de 5 ans/);
-    assert.deepEqual(ui.call('buildTodos', [c('A', '2024-06-01')]), []);
+    assert.deepEqual(ui.call('buildTodos', [c('A', '2024-06-01')], { lastBackup: { at: TODAY + 'T09:00:00Z' } }), []);
   });
 });
 

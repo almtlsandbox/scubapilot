@@ -38,10 +38,11 @@ async function startServer(options) {
   child.stdout.on('data', d => { output += d; });
   child.stderr.on('data', d => { output += d; });
   const url = `http://127.0.0.1:${port}`;
-  const raw = (method, p, opts) => fetch(url + p, { method, ...(opts || {}) });
+  // Comme l'interface, les tests envoient l'en-tête X-ScubaPilot (exigé pour toute modification).
+  const raw = (method, p, opts) => fetch(url + p, { method, ...(opts || {}), headers: { 'X-ScubaPilot': '1', ...((opts && opts.headers) || {}) } });
   const api = async (method, p, body, headers) => {
     const res = await fetch(url + p, {
-      method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(headers || {}) },
+      method, headers: { 'X-ScubaPilot': '1', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(headers || {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined
     });
     let data = null;

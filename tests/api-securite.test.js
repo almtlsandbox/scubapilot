@@ -10,7 +10,7 @@ const { startServer, seedCourse, tmpDir, rmrf } = require('./helpers');
 function rawRequest(port, method, urlPath, opts) {
   return new Promise((resolve, reject) => {
     const body = opts && opts.body;
-    const req = http.request({ host: '127.0.0.1', port, method, path: urlPath, headers: { ...(body ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {}), ...((opts && opts.headers) || {}) } }, res => {
+    const req = http.request({ host: '127.0.0.1', port, method, path: urlPath, headers: { 'X-ScubaPilot': '1', ...(body ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {}), ...((opts && opts.headers) || {}) } }, res => {
       let d = ''; res.on('data', c => d += c); res.on('end', () => { let j = null; try { j = JSON.parse(d); } catch (e) {} resolve({ status: res.statusCode, data: j }); });
     });
     req.on('error', reject);
@@ -66,6 +66,42 @@ test('aucune requête ne peut sortir du répertoire racine', async (t) => {
     assert.ok(fs.existsSync(path.join(root, c.id, j.filename)));
     assert.ok(!fs.existsSync(path.join(world, 'evil.txt')) && !fs.existsSync(path.join(root, 'evil.txt')));
     intact();
+  });
+});
+
+test("requêtes venues d'autres sites web (CSRF) : refusées", async (t) => {
+  const srv = await startServer({ port: 45412 });
+  t.after(() => srv.stop());
+  const c = await seedCourse(srv, '2019-08-15');
+  const bare = (method, p, headers, body) => new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: srv.port, method, path: p, headers: { 'Content-Type': 'text/plain', ...(headers || {}) } }, res => {
+      let d = ''; res.on('data', x => d += x); res.on('end', () => { let j = null; try { j = JSON.parse(d); } catch (e) {} resolve({ status: res.statusCode, data: j }); });
+    });
+    req.on('error', reject); if (body) req.write(body); req.end();
+  });
+  await t.test("une requête « simple » sans l'en-tête de l'application : refusée, rien n'est modifié", async () => {
+    const up = await bare('POST', `/api/courses/${c.id}/upload?filename=doc.html`, { Origin: 'https://site-quelconque.example' }, 'contenu');
+    assert.equal(up.status, 403);
+    const up2 = await bare('POST', `/api/courses/${c.id}/upload?filename=doc.html`, {}, 'contenu');
+    assert.equal(up2.status, 403); assert.equal(up2.data.error, 'MISSING_APP_HEADER');
+    const ar = await bare('POST', `/api/courses/${c.id}/archive`, {});
+    assert.equal(ar.status, 403);
+    assert.ok(!fs.existsSync(path.join(srv.root, c.id, 'doc.html')));
+    assert.ok(fs.existsSync(path.join(srv.root, c.id, 'course.json')), "le cours n'a pas été archivé");
+    assert.equal((await bare('DELETE', `/api/courses/${c.id}`, {})).status, 403);
+    assert.equal((await bare('PUT', '/api/centers', {}, '[]')).status, 403);
+  });
+  await t.test("même avec l'en-tête, une origine étrangère est refusée", async () => {
+    const r = await bare('POST', `/api/courses/${c.id}/archive`, { 'X-ScubaPilot': '1', Origin: 'https://site-quelconque.example' });
+    assert.equal(r.status, 403); assert.equal(r.data.error, 'FORBIDDEN_ORIGIN');
+    assert.equal((await bare('POST', `/api/courses/${c.id}/archive`, { 'X-ScubaPilot': '1', Origin: 'null' })).status, 403);
+    assert.equal((await bare('POST', `/api/courses/${c.id}/archive`, { 'X-ScubaPilot': '1', Origin: 'http://localhost:9999' })).status, 403, 'autre port local');
+  });
+  await t.test("l'interface de ScubaPilot (même origine + en-tête) fonctionne", async () => {
+    const r = await bare('POST', `/api/courses/${c.id}/upload?filename=doc.txt`, { 'X-ScubaPilot': '1', Origin: `http://localhost:${srv.port}`, 'Content-Type': 'application/octet-stream' }, 'ok');
+    assert.equal(r.status, 200);
+    assert.equal((await srv.api('GET', '/api/courses')).status, 200, 'les lectures ne demandent pas d\'en-tête');
+    assert.equal((await fetch(`${srv.url}/api/settings`)).status, 200);
   });
 });
 

@@ -123,6 +123,31 @@ test('sauvegarde : un zip complet et valide', async (t) => {
   assert.ok(!zip.names.some(n => n.endsWith('.tmp')), 'pas de fichier temporaire');
   assert.ok(zip.entries.every(e => e.utf8), 'noms en UTF-8');
   assert.equal((await srv.raw('GET', '/api/backup/download/' + job.id)).status, 404, 'le zip temporaire est retiré après téléchargement');
+  // La date de la sauvegarde est notée avec les réglages, et renvoyée par /api/settings.
+  const lb = await waitFor(async () => (await srv.api('GET', '/api/settings')).data.lastBackup, 5000, 'date de sauvegarde');
+  assert.equal(lb.filename, job.filename); assert.ok(Date.now() - Date.parse(lb.at) < 60000);
+  assert.ok(fs.existsSync(path.join(srv.root, '_ScubaPilot', 'derniere-sauvegarde.json')));
+  // Elle n'est jamais réécrite dans settings.json par l'interface.
+  const s = (await srv.api('GET', '/api/settings')).data;
+  await srv.api('PUT', '/api/settings', { ...s, instructorName: 'X' });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(srv.root, '_ScubaPilot', 'settings.json'), 'utf8')).lastBackup, undefined);
+});
+
+test('copies en conflit de OneDrive : repérées', async () => {
+  const srv = await startServer({ port: 45413 });
+  try {
+    const c = await seedCourse(srv);
+    assert.deepEqual((await srv.api('GET', '/api/conflicts')).data, []);
+    fs.writeFileSync(path.join(srv.root, c.id, c.zoe, 'student-BUREAU-PC.json'), '{}');
+    fs.writeFileSync(path.join(srv.root, c.id, 'course-PORTABLE.json'), '{}');
+    fs.writeFileSync(path.join(srv.root, '_ScubaPilot', 'centers-BUREAU-PC.json'), '[]');
+    fs.writeFileSync(path.join(srv.root, c.id, c.zoe, 'resultats-examen.json'), '{}');   // autre fichier : ignoré
+    fs.writeFileSync(path.join(srv.root, c.id, c.zoe, 'student.json.123.tmp'), '{}');   // fichier temporaire : ignoré
+    const found = (await srv.api('GET', '/api/conflicts')).data.map(x => x.rel).sort();
+    assert.deepEqual(found, ['_ScubaPilot/centers-BUREAU-PC.json', `${c.id}/${c.zoe}/student-BUREAU-PC.json`, `${c.id}/course-PORTABLE.json`].sort());
+    const one = (await srv.api('GET', '/api/conflicts')).data.find(x => x.studentFolder);
+    assert.equal(one.original, 'student.json'); assert.equal(one.courseId, c.id); assert.equal(one.studentFolder, c.zoe);
+  } finally { await srv.stop(); }
 });
 
 test('sauvegarde refusée si le répertoire racine est vide', async () => {

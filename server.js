@@ -19,6 +19,25 @@ app.use((req, res, next) => {
   if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return next();
   res.status(403).json({ error: 'FORBIDDEN_HOST' });
 });
+// Protection contre les requêtes envoyées par d'autres sites web (CSRF). Une page ouverte dans le
+// navigateur peut envoyer des requêtes « simples » vers http://localhost:4531 sans pouvoir en lire
+// la réponse : assez pour déposer un fichier ou archiver un cours. Toute requête qui MODIFIE quelque
+// chose doit donc porter l'en-tête X-ScubaPilot, ajouté par l'interface de ScubaPilot (ou celui du
+// lanceur). Un autre site ne peut pas ajouter cet en-tête sans l'accord du serveur, que celui-ci ne
+// donne jamais. Par sécurité, une origine étrangère déclarée par le navigateur est aussi refusée.
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+function isLocalOrigin(origin) {
+  try { const u = new URL(origin); return ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) && String(u.port || '80') === String(PORT); }
+  catch (e) { return false; }
+}
+app.use((req, res, next) => {
+  if (SAFE_METHODS.has(req.method)) return next();
+  const origin = req.headers.origin;
+  if (origin && origin !== 'null' && !isLocalOrigin(origin)) return res.status(403).json({ error: 'FORBIDDEN_ORIGIN' });
+  if (origin === 'null') return res.status(403).json({ error: 'FORBIDDEN_ORIGIN' });
+  if (req.headers['x-scubapilot'] === '1' || req.headers['x-scubapilot-launcher'] === '1') return next();
+  res.status(403).json({ error: 'MISSING_APP_HEADER' });
+});
 // Limite relevée : les documents glissés-déposés sont envoyés en base64 dans le corps JSON.
 app.use(express.json({ limit: '25mb' }));
 // no-cache : le navigateur revalide à chaque chargement, pour qu'une mise à jour de l'application
@@ -472,6 +491,41 @@ app.delete('/api/trash', (req, res) => {
   } catch (e) { fail(res, e); }
 });
 
+// ---------- Copies en conflit de OneDrive ----------
+// Quand OneDrive ne peut pas fusionner deux versions d'un fichier (modifié sur deux ordinateurs, ou
+// pendant une synchronisation), il garde les deux et renomme l'une en ajoutant le nom de l'ordinateur :
+// « student.json » + « student-NOMDUPC.json ». ScubaPilot ne lit que student.json : la copie passerait
+// inaperçue. On les repère pour les signaler.
+function conflictCopies(dir, bases) {
+  let names = [];
+  try { names = fs.readdirSync(dir, { withFileTypes: true }).filter(d => d.isFile()).map(d => d.name); } catch (e) { return []; }
+  const out = [];
+  for (const n of names) {
+    if (!n.toLowerCase().endsWith('.json') || n.endsWith('.tmp')) continue;
+    const stem = n.slice(0, -5);
+    const base = bases.find(b => stem.toLowerCase().startsWith(b.toLowerCase() + '-') && stem.length > b.length + 1);
+    if (base) out.push({ name: n, original: base + '.json' });
+  }
+  return out;
+}
+function findConflicts(root) {
+  const found = [];
+  const cfgBases = CONFIG_FILES.map(f => f.replace(/\.json$/, ''));
+  for (const c of conflictCopies(path.join(root, CONFIG_DIRNAME), cfgBases)) found.push({ ...c, courseId: CONFIG_DIRNAME, studentFolder: '', rel: `${CONFIG_DIRNAME}/${c.name}` });
+  let courseDirs = [];
+  try { courseDirs = fs.readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory() && !isReservedDir(d.name)); } catch (e) { return found; }
+  for (const cd of courseDirs) {
+    const cPath = path.join(root, cd.name);
+    if (!fs.existsSync(path.join(cPath, 'course.json'))) continue;
+    for (const c of conflictCopies(cPath, ['course'])) found.push({ ...c, courseId: cd.name, studentFolder: '', rel: `${cd.name}/${c.name}` });
+    let sDirs = [];
+    try { sDirs = fs.readdirSync(cPath, { withFileTypes: true }).filter(d => d.isDirectory()); } catch (e) { continue; }
+    for (const sd of sDirs) for (const c of conflictCopies(path.join(cPath, sd.name), ['student'])) found.push({ ...c, courseId: cd.name, studentFolder: sd.name, rel: `${cd.name}/${sd.name}/${c.name}` });
+  }
+  return found;
+}
+app.get('/api/conflicts', (req, res) => { try { res.json(findConflicts(getRoot())); } catch (e) { fail(res, e); } });
+
 // ---------- Archivage des anciens cours ----------
 // Archiver un cours = en faire un zip complet dans <racine>/_Archives/, vérifier ce zip, puis
 // déplacer le dossier d'origine dans la corbeille. Le cours quitte les listes, mais rien n'est
@@ -575,13 +629,13 @@ app.get('/api/settings', (req, res) => {
   try {
     const rootDir = getRootOrEmpty();
     if (rootDir && !fs.existsSync(rootDir)) return res.json({ rootDir, rootMissing: true });
-    res.json({ ...stripRoot(readJSONStrict(cfg('settings.json'), {})), rootDir });
+    res.json({ ...stripRoot(readJSONStrict(cfg('settings.json'), {})), rootDir, lastBackup: lastBackup() });
   } catch (e) { fail(res, e); }
 });
 app.put('/api/settings', (req, res) => {
   try {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ error: 'INVALID_DATA' });
-    const { rootMissing, ...body } = req.body;
+    const { rootMissing, lastBackup: _lb, ...body } = req.body; // champs calculés : jamais enregistrés
     const prevRoot = getRootOrEmpty();
     // Sans champ rootDir dans la requête, la racine reste celle en vigueur (on ne la « vide » jamais par accident).
     const newRoot = typeof body.rootDir === 'string' ? body.rootDir.trim() : prevRoot;
@@ -1185,12 +1239,21 @@ app.post('/api/backup', (req, res) => {
           err => { job.error = (err && (err.code || err.message)) || 'ERREUR'; job.state = 'error'; cleanupBackup(job); });
   res.json(publicBackupJob(job));
 });
+// Date de la dernière sauvegarde téléchargée, notée avec les réglages (donc commune à tous les
+// ordinateurs qui partagent la racine) : sert au rappel de la liste « À faire ».
+const LAST_BACKUP_FILE = 'derniere-sauvegarde.json';
+function recordBackup(job) {
+  try { writeJSON(cfg(LAST_BACKUP_FILE), { at: new Date().toISOString(), filename: job.filename, bytes: job.result.zipBytes, files: job.result.files }); }
+  catch (e) { console.error('Date de sauvegarde non enregistrée :', e && e.message); }
+}
+function lastBackup() { try { return readJSON(cfg(LAST_BACKUP_FILE), null); } catch (e) { return null; } }
 app.get('/api/backup/status', (req, res) => res.json(publicBackupJob(backupJob)));
 app.get('/api/backup/download/:tid', (req, res) => {
   const job = backupJob;
   if (!job || job.id !== req.params.tid || job.state !== 'done' || !fs.existsSync(job.zipPath)) return res.status(404).json({ error: 'NOT_FOUND' });
-  res.download(job.zipPath, job.filename, () => {
+  res.download(job.zipPath, job.filename, (err) => {
     // Le zip temporaire est retiré une fois envoyé (ou si l'envoi a échoué : il suffira de relancer).
+    if (!err && job.result) recordBackup(job);
     cleanupBackup(job);
     if (backupJob === job) backupJob = null;
   });

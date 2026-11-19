@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.16';
+const APP_VERSION = '1.17';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -129,7 +129,8 @@ const state = { settings: null, courseTypes: [], sites: [], studentFields: [], e
 
 // ---------- Helpers ----------
 async function api(method, url, body) {
-  const opts = { method, headers: {} };
+  // X-ScubaPilot : exigé par le serveur pour toute modification (protection contre les autres sites).
+  const opts = { method, headers: { 'X-ScubaPilot': '1' } };
   if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   const res = await fetch(url, opts);
   const data = await res.json().catch(() => ({}));
@@ -268,6 +269,7 @@ function uploadFile(uploadUrl, file, onProgress) {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', uploadUrl + (uploadUrl.includes('?') ? '&' : '?') + 'filename=' + encodeURIComponent(file.name));
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-ScubaPilot', '1');
     xhr.upload.onprogress = e => { if (onProgress && e.lengthComputable && e.total) onProgress(e.loaded / e.total); };
     xhr.onload = () => {
       let data = {};
@@ -646,10 +648,19 @@ function archiveCandidates(courses, years) {
 }
 
 // ---------- Liste « À faire » ----------
+// Date locale (AAAA-MM-JJ) d'un horodatage ISO enregistré en UTC : une sauvegarde faite à 20 h à
+// Toronto porte la date du jour, pas celle du lendemain.
+function localIsoDate(at) {
+  const d = new Date(at);
+  if (isNaN(d)) return String(at || '').slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+const BACKUP_REMINDER_DAYS = 30; // rappel si la dernière sauvegarde a plus de 30 jours
 // Construit, à partir de tous les cours, ce qui demande une action : documents manquants des cours
 // proches, convocations pas encore envoyées, certifications et transferts en attente, factures à
 // préparer / soumettre, paiements en attente. urgency : 2 = urgent, 1 = à faire, 0 = quand vous voulez.
-function buildTodos(courses) {
+// extra (facultatif) : { conflicts: [...copies en conflit OneDrive], lastBackup: {at,...} | null }
+function buildTodos(courses, extra) {
   const today = todayISO(), todos = [];
   const names = list => list.slice(0, 3).map(s => `${s.firstName || ''} ${s.lastName || ''}`.trim()).join(', ') + (list.length > 3 ? ` et ${list.length - 3} autre(s)` : '');
   for (const c of courses) {
@@ -691,21 +702,39 @@ function buildTodos(courses) {
       add(since > 30 ? 2 : (since > 14 ? 1 : 0), '💵', `${waiting} (facture ${c.invoice.number || ''}${amount})`, c.invoice.submittedDate);
     }
   }
+  // Données : copies en conflit de OneDrive, et sauvegarde trop ancienne (ou jamais faite).
+  extra = extra || {};
+  for (const cf of (extra.conflicts || [])) {
+    const where = cf.courseId === '_ScubaPilot' ? 'dans vos réglages' : (cf.studentFolder ? `dans le dossier de ${cf.studentFolder}` : 'dans le dossier du cours');
+    todos.push({ course: cf.courseId === '_ScubaPilot' ? null : courses.find(c => c.id === cf.courseId) || null, title: 'Copie en conflit (OneDrive)', href: cf.courseId === '_ScubaPilot' ? '#/settings' : null,
+      urgency: 1, icon: '⚠️', sortDate: '0000', conflict: cf,
+      text: `OneDrive a créé « ${cf.name} » à côté de « ${cf.original} » ${where} : deux versions différentes existent. Vérifiez les informations dans ScubaPilot, puis supprimez la copie.` });
+  }
+  if (courses.some(c => !c.corrupted)) {
+    const lb = extra.lastBackup && extra.lastBackup.at ? extra.lastBackup : null;
+    const days = lb ? daysBetween(localIsoDate(lb.at), todayISO()) : null;
+    if (!lb || days > BACKUP_REMINDER_DAYS) todos.push({ course: null, title: 'Sauvegarde', href: '#/settings', urgency: (!lb || days > 3 * BACKUP_REMINDER_DAYS) ? 2 : 1, icon: '💾', sortDate: '0000',
+      text: lb ? `Dernière sauvegarde il y a ${days} jours (${shortDate(localIsoDate(lb.at))}) : faites-en une nouvelle (Paramètres → Sauvegarde) et rangez-la hors de l'ordinateur.`
+               : "Aucune sauvegarde n'a encore été faite avec ScubaPilot : faites-en une (Paramètres → Sauvegarde) et rangez-la hors de l'ordinateur." });
+  }
   // Cours qui ont dépassé la durée de conservation : un seul rappel, sans urgence, vers les Paramètres.
   const old = archiveCandidates(courses, retentionYears());
   if (old.length) todos.push({ course: old[0], urgency: 0, icon: '🗄️', sortDate: '9999', href: '#/settings',
     text: `${old.length} cours ${old.length > 1 ? 'ont' : 'a'} plus de ${retentionYears()} ans : vous pouvez ${old.length > 1 ? 'les' : 'le'} archiver ou ${old.length > 1 ? 'les' : 'le'} supprimer (Paramètres → Archivage)` });
   return todos.sort((a, b) => (b.urgency - a.urgency) || String(a.sortDate).localeCompare(String(b.sortDate)));
 }
-function buildTodoCard(courses) {
-  const todos = buildTodos(courses);
+function buildTodoCard(courses, extra) {
+  const todos = buildTodos(courses, extra);
   const LIMIT = 6;
   const item = (td, hidden) => {
-    const c = td.course, d = courseDates(c);
+    const c = td.course, d = c ? courseDates(c) : {};
     return `<li class="todo u${td.urgency}"${hidden ? ' hidden' : ''}>
       <span class="todo-icon" aria-hidden="true">${td.icon}</span>
-      <div><a href="${td.href || '#/course/' + encodeURIComponent(c.id)}"><strong>${escapeHtml(courseTypeLabel(c.typeCode))}</strong>${d.first ? ' — ' + escapeHtml(shortDate(d.first)) : ''}</a>
-        <span class="muted"> · ${escapeHtml(centerLabel(c.centerId))}</span><br>${escapeHtml(td.text)}</div>
+      <div>${c
+          ? `<a href="${td.href || '#/course/' + encodeURIComponent(c.id)}"><strong>${td.title ? escapeHtml(td.title) + ' — ' : ''}${escapeHtml(courseTypeLabel(c.typeCode))}</strong>${d.first ? ' — ' + escapeHtml(shortDate(d.first)) : ''}</a><span class="muted"> · ${escapeHtml(centerLabel(c.centerId))}</span>`
+          : `<a href="${td.href || '#/settings'}"><strong>${escapeHtml(td.title || '')}</strong></a>`}
+        <br>${escapeHtml(td.text)}
+        ${td.conflict ? `<br><button type="button" class="btn secondary small" data-open-conflict="${escapeHtml(JSON.stringify([td.conflict.courseId, td.conflict.studentFolder]))}" style="margin-top:6px">Ouvrir le dossier</button>` : ''}</div>
       ${td.urgency === 2 ? '<span class="badge bad">Urgent</span>' : ''}
     </li>`;
   };
@@ -718,6 +747,10 @@ function buildTodoCard(courses) {
         : '<p class="muted">Rien à signaler : tout est à jour. 🎉</p>'}
     </div>
   `);
+  card.querySelectorAll('[data-open-conflict]').forEach(b => b.addEventListener('click', () => {
+    const [courseId, studentFolder] = JSON.parse(b.dataset.openConflict);
+    openExplorer(courseId, studentFolder || undefined);
+  }));
   const more = card.querySelector('#todo-more');
   if (more) more.addEventListener('click', () => { card.querySelectorAll('.todo[hidden]').forEach(li => li.removeAttribute('hidden')); more.remove(); });
   return card;
@@ -858,7 +891,11 @@ async function renderDashboard() {
     const upcoming = courses.filter(c => !c.corrupted).map(c => ({ ...c, sessions: (c.sessions || []).filter(s => s.date && s.date >= today) })).filter(c => c.sessions.length);
     downloadIcs('ScubaPilot-cours-a-venir.ics', upcoming);
   });
-  app.appendChild(buildTodoCard(courses));
+  let conflicts = [], lastBackup = state.settings && state.settings.lastBackup;
+  // Relu à chaque affichage : la sauvegarde a pu être faite depuis (ou sur un autre ordinateur).
+  const [cf, st] = await Promise.all([api('GET', '/api/conflicts').catch(() => []), api('GET', '/api/settings').catch(() => null)]);
+  conflicts = cf; if (st) { lastBackup = st.lastBackup; if (state.settings) state.settings.lastBackup = st.lastBackup; }
+  app.appendChild(buildTodoCard(courses, { conflicts, lastBackup }));
   app.appendChild(filterBar);
 
   const resultsBox = el('<div></div>');
@@ -4490,6 +4527,17 @@ async function renderTrashCard() {
   });
 }
 
+function lastBackupHtml(lb) {
+  if (!lb || !lb.at) return `<span class="badge warn">Aucune sauvegarde enregistrée</span> <span class="muted">— un rappel apparaît dans la liste « À faire » tant qu'aucune n'est faite, puis tous les ${BACKUP_REMINDER_DAYS} jours.</span>`;
+  const days = daysBetween(localIsoDate(lb.at), todayISO());
+  return `<span class="badge ${days > BACKUP_REMINDER_DAYS ? 'warn' : 'ok'}">Dernière sauvegarde : ${escapeHtml(shortDate(localIsoDate(lb.at)))}${days > 0 ? ` (il y a ${days} jour${days > 1 ? 's' : ''})` : " (aujourd'hui)"}</span> <span class="muted">${escapeHtml(lb.filename || '')}${lb.bytes ? ', ' + fmtBytes(lb.bytes) : ''}</span>`;
+}
+// Relit la date de dernière sauvegarde (notée par le programme quand le zip a été téléchargé).
+async function refreshLastBackup() {
+  try { const fresh = await api('GET', '/api/settings'); state.settings.lastBackup = fresh.lastBackup; } catch (e) {}
+  const p = document.getElementById('s-backup-last');
+  if (p) p.innerHTML = lastBackupHtml(state.settings.lastBackup);
+}
 function renderSettings() {
   const app = document.getElementById('app');
   const s = state.settings;
@@ -4532,6 +4580,7 @@ function renderSettings() {
       <div class="actions-inline">
         <button class="btn small" id="s-backup-btn">💾 Créer une sauvegarde (.zip)</button>
       </div>
+      <p id="s-backup-last">${lastBackupHtml(s.lastBackup)}</p>
       <p class="muted" id="s-backup-status"></p>
     </div>
 
@@ -4628,6 +4677,7 @@ function renderSettings() {
       a.href = '/api/backup/download/' + encodeURIComponent(job.id);
       a.download = job.filename;
       document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(refreshLastBackup, 2500); setTimeout(refreshLastBackup, 10000);
       const skipped = job.skipped || [];
       statusEl.innerHTML = `✅ Sauvegarde créée : <strong>${escapeHtml(job.filename)}</strong> (${fmtBytes(job.zipBytes)}, ${job.filesTotal - skipped.length} fichiers). Le téléchargement démarre dans votre navigateur.` +
         (skipped.length ? `<br><span style="color:var(--red)">⚠ ${skipped.length} fichier(s) n'ont pas pu être lus et ne sont PAS dans la sauvegarde :</span><br>${skipped.slice(0, 20).map(s => escapeHtml(s.file)).join('<br>')}${skipped.length > 20 ? '<br>…' : ''}` : '');

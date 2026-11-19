@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.16 — Novembre 2026**
+**Version 1.17 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -528,6 +528,14 @@ Paramètres → carte **Sauvegarde** → bouton de création. L'application cré
 
 **Restaurer** : décompressez le zip dans un dossier, puis indiquez ce dossier comme répertoire racine dans les Paramètres. Les réglages qu'il contient sont repris automatiquement.
 
+**Rappel de sauvegarde.** La carte Sauvegarde indique la date de la dernière sauvegarde téléchargée (commune à tous les ordinateurs qui partagent votre répertoire racine). Tant qu'aucune n'a été faite, puis dès que la dernière a plus de 30 jours, la liste « À faire » du tableau de bord vous le rappelle (en rouge au-delà de 90 jours). Rangez chaque sauvegarde hors de l'ordinateur : clé USB, disque externe.
+
+### Copies en conflit de OneDrive
+
+Si un fichier de ScubaPilot est modifié à deux endroits avant que OneDrive ait fini de synchroniser (deux ordinateurs, ou un ordinateur resté hors ligne), OneDrive garde les deux versions et renomme l'une en ajoutant le nom de l'ordinateur, par exemple `student-BUREAU-PC.json` à côté de `student.json`. ScubaPilot ne lit que `student.json` : les changements de la copie n'apparaissent pas.
+
+La liste « À faire » signale chaque copie de ce genre, avec un bouton **Ouvrir le dossier**. Le plus simple : vérifiez dans ScubaPilot que la fiche (ou le cours, ou le réglage) est correcte, corrigez au besoin, puis supprimez la copie dans l'Explorateur.
+
 ### Corbeille
 
 Un cours ou un étudiant supprimé n'est pas effacé : il est déplacé dans le dossier `_Corbeille` du répertoire racine, avec tous ses documents. Dans **Paramètres → Corbeille** :
@@ -615,6 +623,7 @@ Si OneDrive n'a pas fini de démarrer, si un disque n'est pas branché ou si le 
 ## 16. Notes techniques
 
 - Serveur Node.js (Express) uniquement local, sur `localhost:4531` ; rien n'est envoyé sur internet.
+- **Protection contre les autres sites web** (depuis la version 1.17) : une page web ouverte dans votre navigateur ne peut pas envoyer d'ordre à ScubaPilot. Toute modification doit venir de l'interface de ScubaPilot elle-même (en-tête `X-ScubaPilot` et vérification de l'origine).
 - **Accès limité à cet ordinateur** (depuis la version 1.7) : le serveur n'écoute que sur `127.0.0.1` et refuse les requêtes venant d'un autre appareil du réseau. L'application n'ayant pas de mot de passe, c'est ce qui protège vos dossiers sur un Wi-Fi partagé.
 - Les fichiers de données sont écrits de façon atomique (fichier temporaire puis renommage) : une coupure laisse l'ancienne version intacte.
 - Interface en JavaScript pur (sans framework), données en fichiers JSON : aucune base de données à installer.
