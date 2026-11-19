@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.17 — Novembre 2026**
+**Version 1.18 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -125,16 +125,52 @@ Vous êtes prêt : créez votre premier cours.
 
 ### 5.1 Tableau de bord
 
-Page d'accueil. Elle présente la liste **« À faire »**, puis deux listes de cours :
+Page d'accueil. Depuis la version 1.18, elle va à l'essentiel : une ligne d'en-tête, quatre chiffres clés, la liste **« À faire »** regroupée par cours, puis les cours à venir et les cours passés récents.
 
 ![Le tableau de bord](images/tableau-de-bord.jpg)
 *Le tableau de bord*
 
+#### L'en-tête
 
-- **À venir** : le prochain cours en haut, du plus proche au plus lointain ;
-- **Cours passés** : du plus récent au plus ancien, grisés. Un cours est « passé » quand sa dernière séance est antérieure à aujourd'hui.
+- **Recherche** (« Rechercher un cours, un centre ou un étudiant ») : filtre les listes de cours au fil de la frappe (type de cours, centre, nom d'étudiant). Dès deux lettres, une petite liste propose aussi la **fiche globale** des étudiants qui correspondent (voir [5.7](#57-la-fiche-étudiant-globale)) ; flèche bas pour y descendre, Entrée pour l'ouvrir, Échap pour la fermer.
+- **Filtres** : déplie les filtres par **centre**, par **type de cours** et par **état de la facture** (sans facture, non facturé, brouillon, soumise, payée). Une pastille indique combien de filtres sont actifs ; « Effacer les filtres » les remet à zéro.
+- **+ Nouveau cours** : crée un cours (voir [5.2](#52-créer-un-cours)).
+- **⋯** (autres actions) : **Calendrier des cours à venir (.ics)** et **Sommaire des activités accomplies** (voir [section 10](#10-rapports-et-sommaire)).
 
-Une colonne **Statut** résume chaque cours. Il tient compte des **dates** : un cours à venir n'est jugé que sur ses documents pré-cours.
+Le suivi des factures se trouve dans le menu **Factures** à gauche (voir [9.6](#96-suivi-des-factures-et-export)).
+
+#### Les chiffres clés
+
+| Tuile | Ce qu'elle compte |
+|---|---|
+| **À faire** | le nombre d'actions de la liste « À faire », dont combien sont **urgentes** (en rouge) |
+| **Cours à venir** | les cours pas encore terminés, et dans combien de jours débute le prochain |
+| **Post-cours à compléter** | les cours terminés dont des documents manquent encore (le plus récent est nommé) |
+| **Paiements en attente** | le total des factures soumises et pas encore payées ; un clic ouvre la page **Factures** |
+
+#### La liste « À faire »
+
+ScubaPilot rassemble ce qui demande une action, **une ligne par cours** : la mention **Urgent** (rouge) ou **À faire** (orange), le cours (lien vers sa fiche), le centre, le moment (« débute dans 2 jours », « terminé il y a 12 jours ») et le nombre d'actions. Les sujets qui ne concernent pas un cours précis ont leur propre ligne : **Sauvegarde**, **Copie en conflit (OneDrive)** dans les réglages, **Conservation des dossiers**.
+
+La liste est repliée par défaut. **Voir le détail** affiche, sous chaque ligne, les actions elles-mêmes :
+
+- 📋 **documents pré-cours manquants** pour un cours qui débute dans les 14 jours (ou en cours), étudiants nommés ;
+- ✉️ **aucun courriel noté** pour certains étudiants d'un cours qui débute dans les 14 jours (voir [7.3](#73-garder-la-trace-des-envois)) ;
+- 📋 🎓 📁 pour un cours terminé : **documents manquants**, **certifications à confirmer**, **dossiers à transférer** — ou 🔷 « vous pouvez clôturer ce cours » quand tout est complet ;
+- 🧾 **facture à préparer** ou **en brouillon à soumettre** pour un cours terminé ;
+- 💵 **paiement en attente**, avec le nombre de jours et le montant ;
+- copie en conflit créée par OneDrive, avec le bouton **Ouvrir le dossier**.
+
+Une ligne est **Urgent** quand l'échéance est proche (cours dans 3 jours ou moins) ou dépassée de plus de 30 jours. Les lignes urgentes viennent en premier. **Replier** referme le détail.
+
+#### Les listes de cours
+
+- **Cours à venir** : le prochain cours en haut, du plus proche au plus lointain ; les cours sans séance planifiée viennent à la fin ;
+- **Cours passés** : du plus récent au plus ancien, grisés. Seuls les **5 plus récents** sont montrés ; **Voir les N autres** affiche le reste. Pendant une recherche ou avec un filtre, tous les cours qui correspondent sont montrés. Un cours est « passé » quand sa dernière séance est antérieure à aujourd'hui.
+
+Colonnes : **Statut**, **Cours**, **Dates** (en abrégé : « 21–22 nov. 2026 »), **Centre · lieu**, **Étudiants**, **Documents** (deux barres : pré-cours et post-cours, avec le pourcentage ; « — » pour le post-cours d'un cours qui n'a pas commencé) et **Facture**. Un clic sur une ligne ouvre le cours.
+
+Le **Statut** tient compte des **dates** : un cours à venir n'est jugé que sur ses documents pré-cours.
 
 | Statut | Signification |
 |---|---|
@@ -148,25 +184,7 @@ Une colonne **Statut** résume chaque cours. Il tient compte des **dates** : un 
 
 Survolez un statut pour voir le détail (« Débute dans 7 jours — documents pré-cours incomplets (56 %) »).
 
-#### La liste « À faire »
-
-En haut du tableau de bord, ScubaPilot rassemble ce qui demande une action, tous cours confondus. Chaque ligne mène à la fiche du cours concerné :
-
-- 📋 **documents pré-cours manquants** pour un cours qui débute dans les 14 jours (ou en cours), étudiants nommés ;
-- ✉️ **aucun courriel noté** pour certains étudiants d'un cours qui débute dans les 14 jours (voir [7.3](#73-garder-la-trace-des-envois)) ;
-- 📋 🎓 📁 pour un cours terminé : **documents manquants**, **certifications à confirmer**, **dossiers à transférer** — ou 🔷 « vous pouvez clôturer ce cours » quand tout est complet ;
-- 🧾 **facture à préparer** ou **en brouillon à soumettre** pour un cours terminé ;
-- 💵 **paiement en attente**, avec le nombre de jours et le montant.
-
-La bordure est orange pour ce qui est à faire, rouge avec la mention **Urgent** quand l'échéance est proche (cours dans 3 jours ou moins) ou dépassée de plus de 30 jours. Les six premières lignes sont affichées ; un bouton montre les suivantes.
-
-> **Tablette, téléphone, fenêtre étroite** : sous 900 pixels de large, le menu de gauche se replie derrière le bouton **☰** en haut à gauche, les formulaires passent sur une colonne et les tableaux trop larges défilent horizontalement dans leur carte.
-
-Au-dessus des listes de cours : une **recherche** instantanée (nom de cours, centre ou étudiant), des **filtres** par centre, par type et par **état de la facture** (sans facture, non facturé, brouillon, soumise, payée), et le champ **« Ouvrir la fiche globale d'un étudiant »** qui propose un étudiant au fil de la frappe.
-
-Le bouton **« 💰 Suivi des factures »** ouvre la page des factures (voir [9.5](#96-suivi-des-factures-et-export)).
-
-Le bouton **« 📋 Sommaire des activités accomplies »** ouvre un rapport imprimable de tous vos cours (voir [section 10](#10-rapports-et-sommaire)).
+> **Tablette, téléphone, fenêtre étroite** : sous 900 pixels de large, le menu de gauche se replie derrière le bouton **☰** en haut à gauche, la recherche passe sur sa propre ligne, les chiffres clés sur deux colonnes, les formulaires sur une colonne et les tableaux trop larges défilent horizontalement dans leur carte.
 
 ### 5.2 Créer un cours
 
@@ -206,7 +224,7 @@ En haut : dates, sites, centre, instructeurs, dossier, pourcentages globaux de d
 - Un cours peut avoir **plusieurs séances** (théorie, piscine, fosse, mer…), chacune avec date, heure de début, heure de fin, site et notes. La **durée** est calculée automatiquement et la durée totale du cours s'affiche en haut.
 - Tous les champs sont modifiables directement dans le tableau : la valeur s'enregistre toute seule (un changement de date recharge la page pour retrier).
 - Sur chaque séance, ajoutez des **coéquipiers** via le menu « + ajouter… » ; leur courriel est inclus en copie cachée dans l'email groupé.
-- **📅 Ajouter au calendrier** : enregistre un fichier `.ics` contenant une entrée par séance (heures, lieu, coéquipiers, notes). Ouvrez-le pour l'ajouter à Outlook, Google Agenda ou au Calendrier d'Apple. Sans heure de début, la séance est inscrite sur la journée entière. Le tableau de bord a le même bouton, **📅 Calendrier des cours à venir**, pour toutes les séances à venir d'un coup.
+- **📅 Ajouter au calendrier** : enregistre un fichier `.ics` contenant une entrée par séance (heures, lieu, coéquipiers, notes). Ouvrez-le pour l'ajouter à Outlook, Google Agenda ou au Calendrier d'Apple. Sans heure de début, la séance est inscrite sur la journée entière. Le tableau de bord propose la même chose pour toutes les séances à venir d'un coup : menu **⋯ → Calendrier des cours à venir (.ics)**.
 - La carte **Photos du cours** reçoit vos photos par glisser-déposer.
 
 **Documents & communications**
@@ -433,7 +451,7 @@ Le filtre **Facture → Non facturé** du tableau de bord permet de retrouver ce
 
 ### 9.6 Suivi des factures et export
 
-Le menu **Factures** (ou le bouton « 💰 Suivi des factures » du tableau de bord) réunit toutes vos factures :
+Le menu **Factures** (ou la tuile **Paiements en attente** du tableau de bord) réunit toutes vos factures :
 
 ![Le suivi des factures](images/factures-suivi.jpg)
 *Le suivi des factures : totaux, détail et répartition par centre*
@@ -448,7 +466,7 @@ Dans la fenêtre « Courriel au centre » de l'éditeur de facture, le bouton **
 ## 10. Rapports et sommaire
 
 - **Rapport de cours** (fiche du cours → **🖨️ Exporter un rapport**) : séances, documents généraux et, pour chaque étudiant, coordonnées, âge, checklist détaillée, certification ou transfert, instructeur certificateur. Impression ou PDF depuis l'onglet qui s'ouvre.
-- **Sommaire des activités accomplies** (tableau de bord) : tous vos cours (date, type, nombre d'étudiants, centre), du plus récent au plus ancien, avec totaux de cours et d'étudiants.
+- **Sommaire des activités accomplies** (tableau de bord, menu **⋯**) : tous vos cours (date, type, nombre d'étudiants, centre), du plus récent au plus ancien, avec totaux de cours et d'étudiants.
 
 ## 11. Paramètres en détail
 

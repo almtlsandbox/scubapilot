@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.17';
+const APP_VERSION = '1.18';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -723,37 +723,114 @@ function buildTodos(courses, extra) {
     text: `${old.length} cours ${old.length > 1 ? 'ont' : 'a'} plus de ${retentionYears()} ans : vous pouvez ${old.length > 1 ? 'les' : 'le'} archiver ou ${old.length > 1 ? 'les' : 'le'} supprimer (Paramètres → Archivage)` });
   return todos.sort((a, b) => (b.urgency - a.urgency) || String(a.sortDate).localeCompare(String(b.sortDate)));
 }
+// Regroupe les actions de la liste « À faire » : une entrée par cours (avec toutes ses actions),
+// plus une entrée par sujet hors cours (sauvegarde, réglages, conservation des dossiers).
+function groupTodos(todos) {
+  const groups = new Map();
+  for (const td of todos) {
+    const byCourse = td.course && !td.href;
+    const key = byCourse ? 'course:' + td.course.id : 'topic:' + (td.title || 'Conservation des dossiers') + (td.href || '');
+    if (!groups.has(key)) groups.set(key, { key, course: byCourse ? td.course : null, title: byCourse ? '' : (td.title || 'Conservation des dossiers'), href: byCourse ? '' : (td.href || ''), urgency: 0, sortDate: '9999', items: [] });
+    const g = groups.get(key);
+    g.items.push(td);
+    g.urgency = Math.max(g.urgency, td.urgency);
+    if (String(td.sortDate) < g.sortDate) g.sortDate = String(td.sortDate);
+  }
+  return [...groups.values()].sort((a, b) => (b.urgency - a.urgency) || a.sortDate.localeCompare(b.sortDate));
+}
+// « débute dans 2 jours », « en cours », « terminé il y a 12 jours »
+function courseWhen(c) {
+  const d = courseDates(c), today = todayISO();
+  if (!d.first) return 'aucune séance planifiée';
+  if (today < d.first) { const n = daysBetween(today, d.first); return n === 1 ? 'débute demain' : `débute dans ${n} jours`; }
+  if (today <= d.last) return 'en cours';
+  const n = daysBetween(d.last, today);
+  if (n === 1) return 'terminé hier';
+  if (n < 60) return `terminé il y a ${n} jours`;
+  if (n < 730) return `terminé il y a ${Math.round(n / 30.44)} mois`;
+  return `terminé il y a ${Math.floor(n / 365.25)} ans`;
+}
+// Dates courtes : « 21 nov. 2026 », « 21–22 nov. 2026 », « 30 nov. – 2 déc. 2026 », « 30 déc. 2026 – 2 janv. 2027 ».
+function compactDateRange(sessions) {
+  const ds = (sessions || []).map(s => s.date).filter(Boolean).sort();
+  if (!ds.length) return '';
+  const f = (iso, opts) => new Date(iso + 'T12:00:00').toLocaleDateString('fr-CA', opts);
+  const a = ds[0], b = ds[ds.length - 1];
+  if (a === b) return f(a, { day: 'numeric', month: 'short', year: 'numeric' });
+  if (a.slice(0, 7) === b.slice(0, 7)) return `${f(a, { day: 'numeric' })}–${f(b, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  if (a.slice(0, 4) === b.slice(0, 4)) return `${f(a, { day: 'numeric', month: 'short' })} – ${f(b, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  return `${f(a, { day: 'numeric', month: 'short', year: 'numeric' })} – ${f(b, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+}
+// Chiffres clés du tableau de bord.
+function dashboardStats(courses, todos) {
+  const today = todayISO();
+  const live = courses.filter(c => !c.corrupted);
+  const statusOf = c => courseStatusInfo(c).key;
+  const upcoming = live.filter(c => ['unplanned', 'prepare', 'ready', 'running'].includes(statusOf(c)));
+  const nextDays = upcoming.map(c => courseDates(c).first).filter(f => f && f >= today).map(f => daysBetween(today, f)).sort((x, y) => x - y);
+  const post = live.filter(c => statusOf(c) === 'post').sort((x, y) => String(courseDates(y).last).localeCompare(String(courseDates(x).last)));  // le plus récent d'abord
+  const pending = live.filter(c => invoiceStatus(c).key === 'submitted');
+  let pendingAmount = 0;
+  for (const c of pending) { try { pendingAmount += computeInvoice(c, c.invoice).total; } catch (e) {} }
+  return {
+    todoCount: todos.length, urgentCount: todos.filter(td => td.urgency === 2).length,
+    upcomingCount: upcoming.length, nextInDays: nextDays.length ? nextDays[0] : null,
+    postCount: post.length, postFirst: post[0] || null,
+    pendingCount: pending.length, pendingAmount: Math.round(pendingAmount * 100) / 100
+  };
+}
+function buildStatTiles(s) {
+  const tile = (cls, label, value, sub, href) => {
+    const inner = `<div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${sub}</div>`;
+    return href ? `<a class="stat-tile ${cls}" href="${href}">${inner}</a>` : `<div class="stat-tile ${cls}">${inner}</div>`;
+  };
+  const postSub = s.postFirst ? `${escapeHtml(courseTypeLabel(s.postFirst.typeCode))} du ${escapeHtml(shortDate(courseDates(s.postFirst).last))}${s.postCount > 1 ? ' et autres' : ''}` : 'aucun';
+  return el(`<div class="stat-tiles dash-tiles">
+    ${tile(s.urgentCount ? 'bad' : (s.todoCount ? 'warn' : 'ok'), 'À faire', s.todoCount, s.urgentCount ? `<span class="urgent-text">dont ${s.urgentCount} urgent${s.urgentCount > 1 ? 's' : ''}</span>` : (s.todoCount ? 'rien d\'urgent' : 'tout est à jour'))}
+    ${tile('', 'Cours à venir', s.upcomingCount, s.nextInDays === null ? (s.upcomingCount ? 'dates à planifier' : 'aucun') : (s.nextInDays === 0 ? "le prochain aujourd'hui" : (s.nextInDays === 1 ? 'le prochain demain' : `le prochain dans ${s.nextInDays} jours`)))}
+    ${tile(s.postCount ? 'warn' : 'ok', 'Post-cours à compléter', s.postCount, postSub)}
+    ${tile('ok', 'Paiements en attente', fmtMoney(s.pendingAmount), s.pendingCount ? `${s.pendingCount} facture${s.pendingCount > 1 ? 's' : ''} soumise${s.pendingCount > 1 ? 's' : ''}` : 'aucune facture en attente', '#/invoices')}
+  </div>`);
+}
+// État d'affichage du tableau de bord, conservé d'une visite à l'autre pendant la session.
+const dashUi = { todoOpen: false, filtersOpen: false, showAllPast: false };
 function buildTodoCard(courses, extra) {
   const todos = buildTodos(courses, extra);
-  const LIMIT = 6;
-  const item = (td, hidden) => {
-    const c = td.course, d = c ? courseDates(c) : {};
-    return `<li class="todo u${td.urgency}"${hidden ? ' hidden' : ''}>
-      <span class="todo-icon" aria-hidden="true">${td.icon}</span>
-      <div>${c
-          ? `<a href="${td.href || '#/course/' + encodeURIComponent(c.id)}"><strong>${td.title ? escapeHtml(td.title) + ' — ' : ''}${escapeHtml(courseTypeLabel(c.typeCode))}</strong>${d.first ? ' — ' + escapeHtml(shortDate(d.first)) : ''}</a><span class="muted"> · ${escapeHtml(centerLabel(c.centerId))}</span>`
-          : `<a href="${td.href || '#/settings'}"><strong>${escapeHtml(td.title || '')}</strong></a>`}
-        <br>${escapeHtml(td.text)}
-        ${td.conflict ? `<br><button type="button" class="btn secondary small" data-open-conflict="${escapeHtml(JSON.stringify([td.conflict.courseId, td.conflict.studentFolder]))}" style="margin-top:6px">Ouvrir le dossier</button>` : ''}</div>
-      ${td.urgency === 2 ? '<span class="badge bad">Urgent</span>' : ''}
+  const groups = groupTodos(todos);
+  const urgencyBadge = u => u === 2 ? '<span class="badge bad">Urgent</span>' : (u === 1 ? '<span class="badge warn">À faire</span>' : '<span class="tag-status">Quand vous voulez</span>');
+  const groupHtml = g => {
+    const c = g.course;
+    const head = c
+      ? `<a href="#/course/${encodeURIComponent(c.id)}"><strong>${escapeHtml(courseTypeLabel(c.typeCode))}</strong>${courseDates(c).first ? ' — ' + escapeHtml(shortDate(courseDates(c).first)) : ''}</a>
+         <span class="muted">${escapeHtml(centerLabel(c.centerId))} · ${escapeHtml(courseWhen(c))}</span>`
+      : `<a href="${g.href || '#/settings'}"><strong>${escapeHtml(g.title)}</strong></a>`;
+    return `<li class="todo-group u${g.urgency}">
+      <div class="todo-group-head">${urgencyBadge(g.urgency)} ${head}
+        <span class="todo-count">${g.items.length} action${g.items.length > 1 ? 's' : ''}</span></div>
+      <ul class="todo-items">${g.items.map(td => `<li>${escapeHtml(td.text)}${td.conflict ? ` <button type="button" class="btn secondary small" data-open-conflict="${escapeHtml(JSON.stringify([td.conflict.courseId, td.conflict.studentFolder]))}">Ouvrir le dossier</button>` : ''}</li>`).join('')}</ul>
     </li>`;
   };
   const card = el(`
-    <div class="card todo-card">
-      <h2>À faire ${todos.length ? `<span class="tag-status">${todos.length}</span>` : ''}</h2>
-      ${todos.length
-        ? `<ul class="todo-list">${todos.map((td, i) => item(td, i >= LIMIT)).join('')}</ul>
-           ${todos.length > LIMIT ? `<button class="btn secondary small" id="todo-more">${todos.length - LIMIT === 1 ? "Afficher l'autre" : `Afficher les ${todos.length - LIMIT} autres`}</button>` : ''}`
-        : '<p class="muted">Rien à signaler : tout est à jour. 🎉</p>'}
-    </div>
+    <section class="card todo-card${dashUi.todoOpen ? ' open' : ''}" aria-labelledby="todo-title">
+      <div class="card-head">
+        <h2 id="todo-title">À faire ${todos.length ? '<span class="muted small-title">· regroupé par cours</span>' : ''}</h2>
+        ${todos.length ? `<button type="button" class="link-btn" id="todo-toggle" aria-expanded="${dashUi.todoOpen}">${dashUi.todoOpen ? 'Replier' : `Voir le détail (${todos.length})`}</button>` : ''}
+      </div>
+      ${groups.length ? `<ul class="todo-groups">${groups.map(groupHtml).join('')}</ul>` : '<p class="muted">Rien à signaler : tout est à jour.</p>'}
+    </section>
   `);
   card.querySelectorAll('[data-open-conflict]').forEach(b => b.addEventListener('click', () => {
     const [courseId, studentFolder] = JSON.parse(b.dataset.openConflict);
     openExplorer(courseId, studentFolder || undefined);
   }));
-  const more = card.querySelector('#todo-more');
-  if (more) more.addEventListener('click', () => { card.querySelectorAll('.todo[hidden]').forEach(li => li.removeAttribute('hidden')); more.remove(); });
-  return card;
+  const toggle = card.querySelector('#todo-toggle');
+  if (toggle) toggle.addEventListener('click', () => {
+    dashUi.todoOpen = !dashUi.todoOpen;
+    card.classList.toggle('open', dashUi.todoOpen);
+    toggle.setAttribute('aria-expanded', String(dashUi.todoOpen));
+    toggle.textContent = dashUi.todoOpen ? 'Replier' : `Voir le détail (${todos.length})`;
+  });
+  return { card, todos };
 }
 
 function buildCourseRow(c) {
@@ -761,40 +838,40 @@ function buildCourseRow(c) {
     return elRow(`
       <tr>
         <td><span class="badge bad">⚠ Fichier illisible</span></td>
-        <td colspan="8"><strong>${escapeHtml(c.id)}</strong><br><span class="muted">Le fichier course.json de ce dossier est illisible. Vos documents sont intacts : restaurez une version précédente de course.json (OneDrive → Historique des versions) ou reprenez-le d'une sauvegarde.</span></td>
+        <td colspan="6"><strong>${escapeHtml(c.id)}</strong><br><span class="muted">Le fichier course.json de ce dossier est illisible. Vos documents sont intacts : restaurez une version précédente de course.json (OneDrive → Historique des versions) ou reprenez-le d'une sauvegarde.</span></td>
       </tr>
     `);
   }
   const pre = c.stats.prePercent, post = c.stats.postPercent;
   const sessions = c.sessions || [];
-  const dateText = sessions.length
-    ? (sessions.length === 1 ? humanDate(sessions[0].date) : humanDate(sessions[0].date) + ' → ' + humanDate(sessions[sessions.length - 1].date))
-    : '(aucune séance)';
-  const siteText = [...new Set(sessions.map(sess => siteLabel(sess.siteId)).filter(Boolean))].join(', ') || '-';
+  const dateText = sessions.length ? compactDateRange(sessions) : '(aucune séance)';
+  const siteText = [...new Set(sessions.map(sess => siteLabel(sess.siteId)).filter(Boolean))].join(', ');
   const status = courseStatusInfo(c);
+  // Avant le début du cours, le post-cours n'a pas de sens : barre vide et « — ».
+  const started = !!(courseDates(c).first && courseDates(c).first <= todayISO());
+  const bar = (label, p, show) => `<div class="doc-bar"><span>${label}</span><div class="doc-track">${show ? `<div class="doc-fill ${badgeClass(p)}" style="width:${p}%"></div>` : ''}</div><span class="doc-pct">${show ? p + ' %' : '—'}</span></div>`;
   const tr = elRow(`
     <tr class="course-row ${c._isPast ? 'course-row-past' : ''}">
-      <td><span class="${status.cls === 'neutral' ? 'tag-status' : 'badge ' + status.cls}" title="${escapeHtml(status.hint || status.label)}">${status.icon} ${escapeHtml(status.label)}</span></td>
-      <td><strong>${escapeHtml(courseTypeLabel(c.typeCode))}</strong><br><span class="muted">${escapeHtml(c.id)}</span></td>
-      <td>${dateText} ${c._isPast ? '<span class="tag-status">Passé</span>' : ''}</td>
-      <td>${escapeHtml(siteText)}</td>
-      <td>${escapeHtml(centerLabel(c.centerId))}</td>
+      <td><span class="${status.cls === 'neutral' ? 'tag-status' : 'badge ' + status.cls}" title="${escapeHtml(status.hint || status.label)}">${escapeHtml(status.label)}</span></td>
+      <td><strong class="course-name">${escapeHtml(courseTypeLabel(c.typeCode))}</strong></td>
+      <td class="nowrap">${escapeHtml(dateText)}</td>
+      <td>${escapeHtml(centerLabel(c.centerId))}${siteText ? `<div class="muted small">${escapeHtml(siteText)}</div>` : ''}</td>
       <td>${c.stats.studentCount}${c.stats.corruptedStudents ? ` <span class="badge bad" title="${c.stats.corruptedStudents} fiche(s) d'étudiant illisible(s) : ouvrez le cours pour voir lesquelles">⚠ ${c.stats.corruptedStudents}</span>` : ''}</td>
-      <td><span class="badge ${badgeClass(pre)}">${pre}%</span></td>
-      <td><span class="badge ${badgeClass(post)}">${post}%</span></td>
+      <td class="docs-cell">${bar('Pré', pre, true)}${bar('Post', post, started)}</td>
       <td>${invoiceBadgeHtml(c, true)}</td>
     </tr>
   `);
-  tr.addEventListener('click', () => location.hash = '#/course/' + encodeURIComponent(c.id));
+  tr.title = c.id;
+  tr.addEventListener('click', e => { if (!e.target.closest('a')) location.hash = '#/course/' + encodeURIComponent(c.id); });
   makeActivatable(tr, 'link', 'Ouvrir le cours ' + courseTypeLabel(c.typeCode) + ' ' + c.id);
   return tr;
 }
 
 function buildCourseTable(list) {
   const table = el(`
-    <div class="card">
-      <table>
-        <thead><tr><th>Statut</th><th>Cours</th><th>Dates</th><th>Site</th><th>Centre</th><th>Étudiants</th><th>Pré-cours</th><th>Post-cours</th><th>Facture</th></tr></thead>
+    <div class="table-scroll">
+      <table class="course-table">
+        <thead><tr><th>Statut</th><th>Cours</th><th>Dates</th><th>Centre · lieu</th><th>Étudiants</th><th>Documents</th><th>Facture</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -823,19 +900,66 @@ function courseMatchesFilters(c, filters) {
 async function renderDashboard() {
   const courses = await api('GET', '/api/courses');
   const app = document.getElementById('app');
+  const centerOptions = state.centers.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+  const typeOptions = state.courseTypes.map(t => `<option value="${escapeHtml(t.code)}">${escapeHtml(t.label)}</option>`).join('');
   app.innerHTML = `
-    <div class="actions-inline" style="justify-content:space-between;margin:0 0 16px">
-      <h1 style="margin:0">Tableau de bord</h1>
-      <div class="actions-inline" style="margin:0">
-        <button class="btn secondary small" id="ics-all-btn" title="Toutes les séances à venir, dans un fichier .ics pour Outlook, Google Agenda ou Calendrier">📅 Calendrier des cours à venir</button>
-        <a class="btn secondary small" href="#/invoices">💰 Suivi des factures</a>
-        <button class="btn secondary small" id="summary-btn">📋 Sommaire des activités accomplies</button>
+    <div class="dash-head">
+      <h1>Tableau de bord</h1>
+      <div class="dash-search autocomplete">
+        <label for="dash-search" class="visually-hidden">Rechercher un cours, un centre ou un étudiant</label>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+        <input id="dash-search" type="search" autocomplete="off" placeholder="Rechercher un cours, un centre ou un étudiant…">
+        <div class="autocomplete-list" id="dash-suggest" style="display:none"></div>
+      </div>
+      <div class="dash-actions">
+      <button type="button" class="btn secondary" id="dash-filters-btn" aria-expanded="${dashUi.filtersOpen}" aria-controls="dash-filters">Filtres <span id="dash-filter-count"></span></button>
+      <a class="btn" href="#/new-course">+ Nouveau cours</a>
+      <div class="menu-wrap">
+        <button type="button" class="btn secondary icon-btn" id="dash-more" aria-label="Autres actions" aria-haspopup="true" aria-expanded="false">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="19" cy="12" r="1.8"></circle></svg>
+        </button>
+        <div class="menu-pop" id="dash-more-menu" role="menu" hidden>
+          <button type="button" role="menuitem" id="ics-all-btn">Calendrier des cours à venir (.ics)</button>
+          <button type="button" role="menuitem" id="summary-btn">Sommaire des activités accomplies</button>
+        </div>
+      </div>
+      </div>
+    </div>
+    <div class="card dash-filters" id="dash-filters" ${dashUi.filtersOpen ? '' : 'hidden'}>
+      <div class="row" style="align-items:flex-end">
+        <div><label for="dash-filter-center">Centre</label><select id="dash-filter-center"><option value="">Tous les centres</option>${centerOptions}</select></div>
+        <div><label for="dash-filter-type">Type de cours</label><select id="dash-filter-type"><option value="">Tous les types</option>${typeOptions}</select></div>
+        <div><label for="dash-filter-invoice">Facture</label>
+          <select id="dash-filter-invoice">
+            <option value="">Toutes</option>
+            <option value="none">Sans facture (à préparer)</option>
+            <option value="nobill">Non facturé</option>
+            <option value="draft">Brouillon (à soumettre)</option>
+            <option value="submitted">Soumise (paiement en attente)</option>
+            <option value="paid">Payée</option>
+          </select></div>
+        <div style="flex:0 0 auto;min-width:0"><button type="button" class="link-btn" id="dash-filters-reset">Effacer les filtres</button></div>
       </div>
     </div>
   `;
-  document.getElementById('summary-btn').addEventListener('click', () => exportActivitySummary(courses));
+
+  // --- Menu « ⋯ » ---
+  const moreBtn = app.querySelector('#dash-more'), moreMenu = app.querySelector('#dash-more-menu');
+  const closeMenu = () => { moreMenu.hidden = true; moreBtn.setAttribute('aria-expanded', 'false'); };
+  moreBtn.addEventListener('click', e => { e.stopPropagation(); moreMenu.hidden = !moreMenu.hidden; moreBtn.setAttribute('aria-expanded', String(!moreMenu.hidden)); if (!moreMenu.hidden) moreMenu.querySelector('button').focus(); });
+  document.addEventListener('click', function onDoc(e) { if (!document.body.contains(moreMenu)) return document.removeEventListener('click', onDoc); if (!e.target.closest('.menu-wrap')) closeMenu(); });
+  moreMenu.addEventListener('keydown', e => { if (e.key === 'Escape') { closeMenu(); moreBtn.focus(); } });
+  app.querySelector('#summary-btn').addEventListener('click', () => { closeMenu(); exportActivitySummary(courses); });
+  app.querySelector('#ics-all-btn').addEventListener('click', () => {
+    closeMenu();
+    const today = todayISO();
+    // seulement les séances d'aujourd'hui et à venir
+    const upcoming = courses.filter(c => !c.corrupted).map(c => ({ ...c, sessions: (c.sessions || []).filter(s => s.date && s.date >= today) })).filter(c => c.sessions.length);
+    downloadIcs('ScubaPilot-cours-a-venir.ics', upcoming);
+  });
+
   if (!courses.length) {
-    app.appendChild(el(`<div class="card"><p class="muted">Aucun cours pour l'instant.</p><button class="btn" onclick="location.hash='#/new-course'">+ Créer un cours</button></div>`));
+    app.appendChild(el(`<div class="card"><p class="muted">Aucun cours pour l'instant.</p><a class="btn" href="#/new-course">+ Créer un cours</a></div>`));
     return;
   }
 
@@ -849,65 +973,30 @@ async function renderDashboard() {
     c._isPast = !!(c._lastDate && c._lastDate < today);
   });
 
-  const centerOptions = state.centers.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
-  const typeOptions = state.courseTypes.map(t => `<option value="${escapeHtml(t.code)}">${escapeHtml(t.label)}</option>`).join('');
-  const filterBar = el(`
-    <div class="card">
-      <div class="row" style="align-items:flex-end">
-        <div style="flex:2;min-width:220px">
-          <label for="dash-search">Rechercher (cours, centre, étudiant...)</label>
-          <input id="dash-search" placeholder="Tapez pour filtrer...">
-        </div>
-        <div>
-          <label for="dash-filter-center">Centre</label>
-          <select id="dash-filter-center"><option value="">Tous les centres</option>${centerOptions}</select>
-        </div>
-        <div>
-          <label for="dash-filter-type">Type de cours</label>
-          <select id="dash-filter-type"><option value="">Tous les types</option>${typeOptions}</select>
-        </div>
-        <div>
-          <label for="dash-filter-invoice">Facture</label>
-          <select id="dash-filter-invoice">
-            <option value="">Toutes</option>
-            <option value="none">Sans facture (à préparer)</option>
-            <option value="nobill">Non facturé</option>
-            <option value="draft">Brouillon (à soumettre)</option>
-            <option value="submitted">Soumise (paiement en attente)</option>
-            <option value="paid">Payée</option>
-          </select>
-        </div>
-      </div>
-      <div class="autocomplete" style="margin-top:10px;max-width:360px">
-        <label for="dash-student-search">Ouvrir la fiche globale d'un étudiant (tous ses cours)</label>
-        <input id="dash-student-search" placeholder="Tapez un nom d'étudiant...">
-        <div class="autocomplete-list" style="display:none"></div>
-      </div>
-    </div>
-  `);
-  app.querySelector('#ics-all-btn').addEventListener('click', () => {
-    const today = todayISO();
-    // seulement les séances d'aujourd'hui et à venir
-    const upcoming = courses.filter(c => !c.corrupted).map(c => ({ ...c, sessions: (c.sessions || []).filter(s => s.date && s.date >= today) })).filter(c => c.sessions.length);
-    downloadIcs('ScubaPilot-cours-a-venir.ics', upcoming);
-  });
-  let conflicts = [], lastBackup = state.settings && state.settings.lastBackup;
   // Relu à chaque affichage : la sauvegarde a pu être faite depuis (ou sur un autre ordinateur).
-  const [cf, st] = await Promise.all([api('GET', '/api/conflicts').catch(() => []), api('GET', '/api/settings').catch(() => null)]);
-  conflicts = cf; if (st) { lastBackup = st.lastBackup; if (state.settings) state.settings.lastBackup = st.lastBackup; }
-  app.appendChild(buildTodoCard(courses, { conflicts, lastBackup }));
-  app.appendChild(filterBar);
+  let lastBackup = state.settings && state.settings.lastBackup;
+  const [conflicts, st] = await Promise.all([api('GET', '/api/conflicts').catch(() => []), api('GET', '/api/settings').catch(() => null)]);
+  if (st) { lastBackup = st.lastBackup; if (state.settings) state.settings.lastBackup = st.lastBackup; }
+  const { card: todoCard, todos } = buildTodoCard(courses, { conflicts, lastBackup });
+  app.appendChild(buildStatTiles(dashboardStats(courses, todos)));
+  app.appendChild(todoCard);
 
   const resultsBox = el('<div></div>');
   app.appendChild(resultsBox);
+  const PAST_LIMIT = 5;
+  const filtersBox = app.querySelector('#dash-filters');
+  const readFilters = () => ({
+    q: app.querySelector('#dash-search').value.trim().toLowerCase(),
+    centerId: app.querySelector('#dash-filter-center').value,
+    typeCode: app.querySelector('#dash-filter-type').value,
+    invoice: app.querySelector('#dash-filter-invoice').value
+  });
 
   function renderResults() {
-    const filters = {
-      q: filterBar.querySelector('#dash-search').value.trim().toLowerCase(),
-      centerId: filterBar.querySelector('#dash-filter-center').value,
-      typeCode: filterBar.querySelector('#dash-filter-type').value,
-      invoice: filterBar.querySelector('#dash-filter-invoice').value
-    };
+    const filters = readFilters();
+    const active = [filters.centerId, filters.typeCode, filters.invoice].filter(Boolean).length;
+    app.querySelector('#dash-filter-count').innerHTML = active ? `<span class="count-pill">${active}</span>` : '';
+    const searching = !!(filters.q || active);
     const filtered = courses.filter(c => courseMatchesFilters(c, filters));
     const upcoming = filtered.filter(c => !c._isPast)
       .sort((a, b) => (a._firstDate || '9999-99-99').localeCompare(b._firstDate || '9999-99-99'));
@@ -916,50 +1005,73 @@ async function renderDashboard() {
 
     resultsBox.innerHTML = '';
     if (!filtered.length) {
-      resultsBox.appendChild(el('<div class="card"><p class="muted">Aucun cours ne correspond à cette recherche.</p></div>'));
+      resultsBox.appendChild(el(`<div class="card"><p class="muted">Aucun cours ne correspond à cette recherche.</p></div>`));
       return;
     }
-    if (upcoming.length) {
-      resultsBox.appendChild(buildCourseTable(upcoming));
-    } else {
-      resultsBox.appendChild(el('<div class="card"><p class="muted">Aucun cours à venir.</p></div>'));
-    }
+    const upCard = el(`<section class="card" aria-labelledby="up-title"><div class="card-head"><h2 id="up-title">Cours à venir <span class="muted small-title">· ${upcoming.length}</span></h2></div></section>`);
+    upCard.appendChild(upcoming.length ? buildCourseTable(upcoming) : el(`<p class="muted">${searching ? 'Aucun cours à venir ne correspond.' : 'Aucun cours à venir.'}</p>`));
+    resultsBox.appendChild(upCard);
     if (past.length) {
-      resultsBox.appendChild(el('<h2 style="margin-top:28px">Cours passés</h2>'));
-      resultsBox.appendChild(buildCourseTable(past));
+      // Les plus récents seulement, sauf pendant une recherche (tout ce qui correspond est montré).
+      const showAll = searching || dashUi.showAllPast || past.length <= PAST_LIMIT;
+      const shown = showAll ? past : past.slice(0, PAST_LIMIT);
+      const pastCard = el(`<section class="card" aria-labelledby="past-title"><div class="card-head">
+        <h2 id="past-title">Cours passés <span class="muted small-title">· ${shown.length < past.length ? `${shown.length} récents sur ${past.length}` : past.length}</span></h2>
+        ${!searching && past.length > PAST_LIMIT ? `<button type="button" class="link-btn" id="past-toggle">${dashUi.showAllPast ? 'Afficher seulement les plus récents' : `Voir les ${past.length - PAST_LIMIT} autres`}</button>` : ''}
+      </div></section>`);
+      pastCard.appendChild(buildCourseTable(shown));
+      const tg = pastCard.querySelector('#past-toggle');
+      if (tg) tg.addEventListener('click', () => { dashUi.showAllPast = !dashUi.showAllPast; renderResults(); });
+      resultsBox.appendChild(pastCard);
     }
   }
 
-  let debounce;
-  filterBar.querySelector('#dash-search').addEventListener('input', () => {
-    clearTimeout(debounce);
-    debounce = setTimeout(renderResults, 150);
+  // --- Filtres ---
+  const filtersBtn = app.querySelector('#dash-filters-btn');
+  filtersBtn.addEventListener('click', () => {
+    dashUi.filtersOpen = !dashUi.filtersOpen;
+    filtersBox.hidden = !dashUi.filtersOpen;
+    filtersBtn.setAttribute('aria-expanded', String(dashUi.filtersOpen));
+    if (dashUi.filtersOpen) app.querySelector('#dash-filter-center').focus();
   });
-  filterBar.querySelector('#dash-filter-center').addEventListener('change', renderResults);
-  filterBar.querySelector('#dash-filter-type').addEventListener('change', renderResults);
-  filterBar.querySelector('#dash-filter-invoice').addEventListener('change', renderResults);
+  ['#dash-filter-center', '#dash-filter-type', '#dash-filter-invoice'].forEach(sel => app.querySelector(sel).addEventListener('change', renderResults));
+  app.querySelector('#dash-filters-reset').addEventListener('click', () => {
+    ['#dash-filter-center', '#dash-filter-type', '#dash-filter-invoice'].forEach(sel => { app.querySelector(sel).value = ''; });
+    renderResults();
+  });
 
-  const studentSearchInput = filterBar.querySelector('#dash-student-search');
-  const studentListBox = filterBar.querySelector('.autocomplete-list');
-  let studentDebounce;
-  studentSearchInput.addEventListener('input', () => {
+  // --- Recherche unique : filtre les cours ET propose la fiche globale des étudiants qui correspondent ---
+  const searchInput = app.querySelector('#dash-search'), suggest = app.querySelector('#dash-suggest');
+  let debounce, studentDebounce;
+  const hideSuggest = () => { suggest.style.display = 'none'; };
+  searchInput.addEventListener('input', () => {
+    clearTimeout(debounce); debounce = setTimeout(renderResults, 150);
     clearTimeout(studentDebounce);
-    const q = studentSearchInput.value.trim();
-    if (!q) { studentListBox.style.display = 'none'; return; }
+    const q = searchInput.value.trim();
+    if (q.length < 2) { hideSuggest(); return; }
     studentDebounce = setTimeout(async () => {
-      const results = await api('GET', '/api/global-students?q=' + encodeURIComponent(q));
-      // Une entrée par personne (identifiant), avec de quoi distinguer deux homonymes.
-      const persons = groupPersons(results);
-      if (!persons.length) { studentListBox.style.display = 'none'; return; }
-      studentListBox.innerHTML = '';
-      persons.slice(0, 8).forEach(pn => {
-        const item = el(`<div>${escapeHtml(pn.latest.firstName)} ${escapeHtml(pn.latest.lastName)} <span class="muted">— ${escapeHtml(personHint(pn))}</span></div>`);
-        item.addEventListener('click', () => { location.hash = '#/student/' + encodeURIComponent(pn.studentId); });
-        studentListBox.appendChild(item);
+      let persons = [];
+      try { persons = groupPersons(await api('GET', '/api/global-students?q=' + encodeURIComponent(q))); } catch (e) {}
+      if (searchInput.value.trim() !== q || !persons.length) { if (!persons.length) hideSuggest(); return; }
+      suggest.innerHTML = `<div class="suggest-title">Fiche globale d'un étudiant</div>`;
+      persons.slice(0, 6).forEach(pn => {
+        const item = el(`<a href="#/student/${encodeURIComponent(pn.studentId)}" class="suggest-item">${escapeHtml(pn.latest.firstName)} ${escapeHtml(pn.latest.lastName)} <span class="muted">— ${escapeHtml(personHint(pn))}</span></a>`);
+        suggest.appendChild(item);
       });
-      studentListBox.style.display = 'block';
+      suggest.style.display = 'block';
     }, 250);
   });
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') hideSuggest();
+    if (e.key === 'ArrowDown' && suggest.style.display !== 'none') { e.preventDefault(); const first = suggest.querySelector('a'); if (first) first.focus(); }
+  });
+  suggest.addEventListener('keydown', e => {
+    const items = [...suggest.querySelectorAll('a')], i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' && i < items.length - 1) { e.preventDefault(); items[i + 1].focus(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); (i > 0 ? items[i - 1] : searchInput).focus(); }
+    if (e.key === 'Escape') { hideSuggest(); searchInput.focus(); }
+  });
+  app.querySelector('.dash-search').addEventListener('focusout', () => setTimeout(() => { if (!app.querySelector('.dash-search').contains(document.activeElement)) hideSuggest(); }, 150));
 
   renderResults();
 }

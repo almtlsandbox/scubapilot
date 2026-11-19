@@ -269,3 +269,51 @@ test('petits utilitaires', () => {
   assert.equal(ui.call('daysBetween', '2026-11-14', '2026-11-21'), 7); assert.equal(ui.call('daysBetween', '2026-03-07', '2026-03-09'), 2, 'changement d\'heure');
   assert.equal(ui.call('escapeHtml', '<b>"a" & b</b>'), '&lt;b&gt;&quot;a&quot; &amp; b&lt;/b&gt;');
 });
+
+test('tableau de bord allégé', async (t) => {
+  await t.test('dates compactes', () => {
+    assert.equal(ui.call('compactDateRange', []), '');
+    assert.equal(ui.call('compactDateRange', [{ date: '2026-11-21' }]), '21 nov. 2026');
+    assert.equal(ui.call('compactDateRange', [{ date: '2026-11-22' }, { date: '2026-11-21' }]), '21–22 nov. 2026');
+    assert.equal(ui.call('compactDateRange', [{ date: '2026-11-30' }, { date: '2026-12-02' }]), '30 nov. – 2 déc. 2026');
+    assert.equal(ui.call('compactDateRange', [{ date: '2026-12-30' }, { date: '2027-01-02' }]), '30 déc. 2026 – 2 janv. 2027');
+  });
+  await t.test('moment relatif du cours', () => {
+    assert.equal(ui.call('courseWhen', course({ sessions: [{ date: '2026-11-16' }] })), 'débute dans 2 jours');
+    assert.equal(ui.call('courseWhen', course({ sessions: [{ date: '2026-11-15' }] })), 'débute demain');
+    assert.equal(ui.call('courseWhen', course({ sessions: [{ date: '2026-11-14' }] })), 'en cours');
+    assert.equal(ui.call('courseWhen', course({ sessions: [{ date: '2026-11-02' }] })), 'terminé il y a 12 jours');
+    assert.equal(ui.call('courseWhen', course({ sessions: [{ date: '2026-08-14' }] })), 'terminé il y a 3 mois');
+    assert.equal(ui.call('courseWhen', course({ sessions: [{ date: '2021-05-08' }] })), 'terminé il y a 5 ans');
+    assert.equal(ui.call('courseWhen', course({})), 'aucune séance planifiée');
+  });
+  await t.test('« À faire » regroupé par cours', () => {
+    const a = { id: 'A' }, b = { id: 'B' };
+    const g = ui.call('groupTodos', [
+      { course: a, urgency: 1, text: 'a1', sortDate: '2026-11-20' },
+      { course: b, urgency: 2, text: 'b1', sortDate: '2026-11-16' },
+      { course: a, urgency: 2, text: 'a2', sortDate: '2026-11-20' },
+      { course: null, urgency: 0, text: 'sauvegarde', title: 'Sauvegarde', href: '#/settings', sortDate: '9999' },
+      { course: a, urgency: 0, text: 'archiver', href: '#/settings', sortDate: '2019' }
+    ]);
+    assert.equal(g.length, 4);
+    assert.deepEqual(g.map(x => x.key), ['course:B', 'course:A', 'topic:Conservation des dossiers#/settings', 'topic:Sauvegarde#/settings']);
+    assert.equal(g[1].items.length, 2); assert.equal(g[1].urgency, 2);
+    assert.equal(g[3].course, null);
+  });
+  await t.test('chiffres clés', () => {
+    const todos = [{ urgency: 2 }, { urgency: 1 }, { urgency: 2 }];
+    const s = ui.call('dashboardStats', [
+      course({ id: 'U1', sessions: [{ date: '2026-11-21' }] }),
+      course({ id: 'U2', sessions: [{ date: '2026-11-16' }], stats: stats(50, 0) }),
+      course({ id: 'P0', sessions: [{ date: '2021-05-08' }], stats: stats(100, 0) }),
+      course({ id: 'P1', sessions: [{ date: '2026-11-07' }], stats: stats(100, 50) }),
+      course({ id: 'F1', sessions: [{ date: '2026-10-01' }], completed: true, invoice: { submittedDate: '2026-10-05', groups: [{ label: 'X', unitPrice: 100, studentFolders: [] , quantity: 2 }] } }),
+      { id: 'BAD', corrupted: true }
+    ], todos);
+    assert.equal(s.todoCount, 3); assert.equal(s.urgentCount, 2);
+    assert.equal(s.upcomingCount, 2); assert.equal(s.nextInDays, 2);
+    assert.equal(s.postCount, 2); assert.equal(s.postFirst.id, 'P1');
+    assert.equal(s.pendingCount, 1);
+  });
+});
