@@ -25,16 +25,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      # npm ci : installe exactement les versions de package-lock.json (et échoue s'il ne correspond plus à package.json).
       - name: Installer les composants
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Lancer les tests
         run: npm test
-      # Affiche package-lock.json (en base64, entre deux repères) dans le journal, pour qu'il puisse être
-      # récupéré et versionné dans le dépôt. Étape temporaire.
-      - name: Afficher package-lock.json
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          echo "=====LOCK-DEBUT====="
-          base64 -w0 package-lock.json
-          echo
-          echo "=====LOCK-FIN====="
