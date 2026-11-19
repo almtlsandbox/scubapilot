@@ -29,11 +29,12 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Lancer les tests
         run: npm test
-      # Le fichier des versions exactes des composants, produit ici (le réseau est disponible) pour être
-      # récupéré puis versionné dans le dépôt.
-      - name: Conserver package-lock.json
+      # Affiche package-lock.json (en base64, entre deux repères) dans le journal, pour qu'il puisse être
+      # récupéré et versionné dans le dépôt. Étape temporaire.
+      - name: Afficher package-lock.json
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-lock
-          path: package-lock.json
+        run: |
+          echo "=====LOCK-DEBUT====="
+          base64 -w0 package-lock.json
+          echo
+          echo "=====LOCK-FIN====="
