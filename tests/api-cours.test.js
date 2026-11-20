@@ -177,3 +177,31 @@ test("import des réglages d'une ancienne installation", async () => {
     assert.equal((await srv.api('POST', '/api/config/import', { dir: path.join(old, 'vide') })).data.error, 'IMPORT_DIR_NOT_FOUND');
   } finally { await srv.stop(); rmrf(old); }
 });
+
+test('identifiants en double dans une liste de réglages : réparés à la lecture', async () => {
+  const srv = await startServer({ port: 45499 });
+  try {
+    await srv.api('GET', '/api/settings');
+    const dir = path.join(srv.root, '_ScubaPilot');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'sites.json'), JSON.stringify([
+      { id: 'site4', name: 'Boutique SubAquaTech' }, { id: 'site4', name: 'Boutique CPAS' }, { name: 'Sans identifiant' }, { id: 'site5', name: 'Sacacomie' }
+    ]));
+    const sites = (await srv.api('GET', '/api/sites')).data;
+    const ids = sites.map(s => s.id);
+    assert.equal(new Set(ids).size, 4, 'tous différents');
+    assert.equal(ids[0], 'site4', 'le premier garde son identifiant');
+    assert.equal(ids[3], 'site5');
+    assert.match(ids[1], /^site-[0-9a-f]{8}$/); assert.match(ids[2], /^site-[0-9a-f]{8}$/);
+    // corrigé sur le disque, original conservé à côté
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'sites.json'), 'utf8')).map(s => s.id), ids);
+    const backups = fs.readdirSync(dir).filter(n => n.startsWith('_avant-correction-'));
+    assert.equal(backups.length, 1);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, backups[0], 'sites.json'), 'utf8'))[1].name, 'Boutique CPAS');
+    // une deuxième lecture ne change plus rien
+    assert.deepEqual((await srv.api('GET', '/api/sites')).data.map(s => s.id), ids);
+    assert.equal(fs.readdirSync(dir).filter(n => n.startsWith('_avant-correction-')).length, 1);
+    // pas pris pour une copie en conflit OneDrive
+    assert.deepEqual((await srv.api('GET', '/api/conflicts')).data, []);
+  } finally { await srv.stop(); }
+});

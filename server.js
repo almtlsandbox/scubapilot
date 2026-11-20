@@ -173,6 +173,39 @@ function configDir() {
   return ensureConfigDir(root);
 }
 function cfg(name) { return path.join(configDir(), name); }
+
+// Listes de réglages dont les éléments sont désignés par leur identifiant (lieux, centres,
+// coéquipiers, modèles d'email). Un fichier modifié à la main peut contenir deux éléments avec le
+// même identifiant, ou un élément sans identifiant : l'interface ne peut alors plus les distinguer
+// (choisir l'un affiche l'autre). On répare à la lecture : le premier garde son identifiant, les
+// suivants en reçoivent un nouveau ; l'original est copié à côté avant la correction.
+function readIdList(name, prefix) {
+  const file = cfg(name);
+  const list = readJSONStrict(file, []);
+  if (!Array.isArray(list)) return list;
+  const seen = new Set();
+  let changed = false;
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    let id = typeof item.id === 'string' ? item.id.trim() : (item.id === undefined || item.id === null ? '' : String(item.id));
+    if (!id || seen.has(id)) {
+      do { id = `${prefix}-${crypto.randomBytes(4).toString('hex')}`; } while (seen.has(id));
+      item.id = id;
+      changed = true;
+    }
+    seen.add(id);
+  }
+  if (changed) {
+    const stamp = trashStamp();
+    try {
+      const dir = path.join(configDir(), `_avant-correction-${stamp}`);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.copyFileSync(file, path.join(dir, name));
+    } catch (e) {}
+    writeJSON(file, list);
+  }
+  return list;
+}
 // Un nom de dossier reçu dans une URL (cours, étudiant) doit être un simple nom : jamais de
 // séparateur ni de « .. », sinon une requête pourrait lire, écrire ou SUPPRIMER hors du répertoire racine.
 function isSafeSegment(name) {
@@ -672,7 +705,7 @@ app.get('/api/course-types', (req, res) => { try { res.json(readJSONStrict(cfg('
 app.put('/api/course-types', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('course_types.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Sites ----------
-app.get('/api/sites', (req, res) => { try { res.json(readJSONStrict(cfg('sites.json'), [])); } catch (e) { fail(res, e); } });
+app.get('/api/sites', (req, res) => { try { res.json(readIdList('sites.json', 'site')); } catch (e) { fail(res, e); } });
 app.put('/api/sites', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('sites.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Champs du profil étudiant (modèle personnalisable) ----------
@@ -680,15 +713,15 @@ app.get('/api/student-fields', (req, res) => { try { res.json(readJSONStrict(cfg
 app.put('/api/student-fields', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('student_fields.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Bibliothèque de modèles d'email ----------
-app.get('/api/email-templates', (req, res) => { try { res.json(readJSONStrict(cfg('email_templates.json'), [])); } catch (e) { fail(res, e); } });
+app.get('/api/email-templates', (req, res) => { try { res.json(readIdList('email_templates.json', 'tpl')); } catch (e) { fail(res, e); } });
 app.put('/api/email-templates', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('email_templates.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Liste globale de coéquipiers (Divemaster, autres instructeurs...) ----------
-app.get('/api/buddies', (req, res) => { try { res.json(readJSONStrict(cfg('buddies.json'), [])); } catch (e) { fail(res, e); } });
+app.get('/api/buddies', (req, res) => { try { res.json(readIdList('buddies.json', 'buddy')); } catch (e) { fail(res, e); } });
 app.put('/api/buddies', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('buddies.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Centres partenaires (qui mandatent l'instructeur) ----------
-app.get('/api/centers', (req, res) => { try { res.json(readJSONStrict(cfg('centers.json'), [])); } catch (e) { fail(res, e); } });
+app.get('/api/centers', (req, res) => { try { res.json(readIdList('centers.json', 'centre')); } catch (e) { fail(res, e); } });
 app.put('/api/centers', (req, res) => { try { if (!req.body || typeof req.body !== 'object') return res.status(400).json({ error: 'INVALID_DATA' }); writeJSON(cfg('centers.json'), req.body); res.json({ ok: true }); } catch (e) { fail(res, e); } });
 
 // ---------- Modèle de facturation (prix de base + offset par étudiant additionnel) ----------

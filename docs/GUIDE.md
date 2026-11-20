@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.18 — Novembre 2026**
+**Version 1.18.1 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -621,6 +621,8 @@ Si OneDrive n'a pas fini de démarrer, si un disque n'est pas branché ou si le 
 **Après une mise à jour, je ne vois pas les nouveautés.** Rechargez sans cache (`Ctrl + F5`). Vérifiez que `public/` a bien été remplacé en entier et que le numéro de version en bas de la barre latérale est le bon.
 
 **« Répertoire racine non défini ».** Allez dans Paramètres, indiquez le répertoire racine et enregistrez.
+
+**Je choisis un lieu (ou un centre, un coéquipier) et un autre s'affiche à sa place.** Deux éléments de la liste portaient le même identifiant, en général après une modification à la main d'un fichier de `_ScubaPilot`. Depuis la version 1.18.1, ScubaPilot le corrige tout seul : le premier garde son identifiant, l'autre en reçoit un nouveau, et le fichier d'origine est copié dans `_ScubaPilot/_avant-correction-<date>/`. Les séances déjà enregistrées avec cet identifiant restent rattachées au premier élément : ouvrez-les et choisissez le bon lieu si nécessaire.
 
 **Je ne peux pas créer de cours.** Il faut au moins un centre partenaire (Paramètres → Centres).
 
