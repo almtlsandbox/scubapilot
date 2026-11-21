@@ -306,3 +306,14 @@ a.stat-tile:hover { border-color: var(--blue); }
   .dash-search { flex: 1 1 100%; order: 5; }
 }
 @media (max-width: 560px) { .dash-tiles { grid-template-columns: 1fr 1fr; } .stat-value { font-size: 20px; } }
+
+/* ---------- Message mis en forme (courriels, 1.19) ---------- */
+.copy-field-head .copy-label { font-size: 13px; font-weight: 600; color: var(--text); }
+.rich-wrap { margin-top: 4px; border: 1px solid #c9d4dd; border-radius: 6px; background: #fff; }
+.rich-wrap:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(14,107,168,.15); }
+.rich-toolbar { display: flex; gap: 2px; padding: 4px; border-bottom: 1px solid #e2e8ee; background: #f6f9fb; border-radius: 6px 6px 0 0; }
+.rich-toolbar button { min-width: 32px; height: 30px; border: 1px solid transparent; background: none; border-radius: 4px; cursor: pointer; font-size: 15px; color: var(--text); font-family: Georgia, serif; }
+.rich-toolbar button:hover, .rich-toolbar button:focus-visible { background: #e6eef4; border-color: #c9d4dd; }
+.rich-editor { padding: 10px 12px; font-size: 14px; line-height: 1.5; outline: none; overflow-wrap: anywhere; max-height: 520px; overflow-y: auto; white-space: normal; }
+.rich-editor .u2, .rich-editor [style*="double"] { text-decoration: underline; text-decoration-style: double; }
+.hint-warn { background: #fff6e5; border: 1px solid #ecd3a3; color: #7a4a05; border-radius: 6px; padding: 8px 12px; font-size: 13px; }

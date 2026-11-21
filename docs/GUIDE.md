@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.18.1 — Novembre 2026**
+**Version 1.19 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -223,7 +223,7 @@ En haut : dates, sites, centre, instructeurs, dossier, pourcentages globaux de d
 **Séances & Photos**
 - Un cours peut avoir **plusieurs séances** (théorie, piscine, fosse, mer…), chacune avec date, heure de début, heure de fin, site et notes. La **durée** est calculée automatiquement et la durée totale du cours s'affiche en haut.
 - Tous les champs sont modifiables directement dans le tableau : la valeur s'enregistre toute seule (un changement de date recharge la page pour retrier).
-- Sur chaque séance, ajoutez des **coéquipiers** via le menu « + ajouter… » ; leur courriel est inclus en copie cachée dans l'email groupé.
+- Sur chaque séance, ajoutez des **coéquipiers** via le menu « + ajouter… » ; leur courriel est mis en copie (Cc) des courriels du cours, comme celui des instructeurs rattachés au cours.
 - **📅 Ajouter au calendrier** : enregistre un fichier `.ics` contenant une entrée par séance (heures, lieu, coéquipiers, notes). Ouvrez-le pour l'ajouter à Outlook, Google Agenda ou au Calendrier d'Apple. Sans heure de début, la séance est inscrite sur la journée entière. Le tableau de bord propose la même chose pour toutes les séances à venir d'un coup : menu **⋯ → Calendrier des cours à venir (.ics)**.
 - La carte **Photos du cours** reçoit vos photos par glisser-déposer.
 
@@ -332,12 +332,14 @@ L'application n'envoie pas de courriel elle-même et n'ouvre aucun logiciel de m
 
 ### 7.1 Deux façons d'écrire
 
-- **Un email groupé** : un seul message, adressé à vous-même (« À »), avec un CC configurable (ex. le centre) et en **copie cachée** : tous les étudiants du cours, les coéquipiers des séances et votre BCC par défaut. Comme le message n'est pas personnalisé (« Bonjour {prenom}, » y devient simplement « Bonjour, »), `{prenom}`, `{nom}` et `{liste_docs_manquants}` restent vides : préférez `{liste_etudiants}`.
-- **Un email par étudiant** : un message distinct avec ses documents manquants, chacun avec ses boutons 📋 pour l'adresse, l'objet et le message. Utile pour les relances. Le bouton **✉️ Email à copier** de la fiche d'un étudiant ouvre la même chose pour un seul étudiant (objet et message préremplis si le cours a un modèle associé).
+- **Un email groupé** : un seul message, adressé à vous-même (« À »). En **copie (Cc)** : le Cc par défaut des Paramètres (ex. le centre) et les **instructeurs et coéquipiers du cours** (les instructeurs rattachés au cours et les coéquipiers des séances, sauf vous). En **copie cachée (Cci)** : tous les étudiants du cours et votre Cci par défaut. Comme le message n'est pas personnalisé (« Bonjour {prenom}, » y devient simplement « Bonjour, »), `{prenom}`, `{nom}` et `{liste_docs_manquants}` restent vides ; un avertissement orange le rappelle quand le modèle les contient. **`{prenom}` et `{nom}` désignent toujours l'étudiant** : pour vous nommer, utilisez `{instructeur}` ; pour nommer toute l'équipe, `{equipe}`.
+- **Un email par étudiant** : un message distinct avec ses documents manquants, chacun avec ses boutons 📋 pour l'adresse, la copie (Cc : instructeurs et coéquipiers du cours), l'objet et le message. Utile pour les relances. Le bouton **✉️ Email à copier** de la fiche d'un étudiant ouvre la même chose pour un seul étudiant (objet et message préremplis si le cours a un modèle associé).
 
 Le bouton **📋 Copier la liste des emails** copie d'un coup les adresses de tous les étudiants du cours, séparées par des virgules.
 
-Pour l'email groupé, l'ordre habituel est : copier le champ **Cci** et le coller dans le champ Cci de votre messagerie, puis l'**objet**, puis le **message**.
+Pour l'email groupé, l'ordre habituel est : copier le champ **Cc**, puis **Cci**, et les coller dans les champs correspondants de votre messagerie, puis l'**objet**, puis le **message**.
+
+Le **message** garde sa **mise en forme** (gras, italique, souligné, double souligné) : le bouton 📋 la copie avec le texte, et elle réapparaît au collage dans Outlook ou Gmail. Vous pouvez aussi retoucher le message et sa mise en forme avant de le copier, avec la petite barre d'outils au-dessus du texte.
 
 ![L'email groupé : chaque champ a son bouton Copier](images/courriel-groupe.jpg)
 *L'email groupé : chaque champ a son bouton « Copier »*
@@ -346,19 +348,22 @@ Pour l'email groupé, l'ordre habituel est : copier le champ **Cci** et le colle
 
 Dans **Paramètres → Modèles d'email**, vous gérez une bibliothèque de modèles nommés, aussi nombreux que vous voulez. Chaque cours a un **modèle par défaut** (choisi à la création, modifiable dans la carte « Communications » : enregistré automatiquement).
 
+Le **message** d'un modèle peut être mis en forme : sélectionnez du texte, puis cliquez sur **G** (gras), ***I*** (italique), **S** souligné, **S** double souligné, ou **⌫** pour retirer la mise en forme de la sélection. Les raccourcis Ctrl+B, Ctrl+I et Ctrl+U fonctionnent aussi. Un texte collé depuis Word ou un courriel garde ces quatre mises en forme ; le reste (polices, couleurs, tailles) est retiré, pour que le message s'affiche proprement partout.
+
 Variables disponibles dans le sujet et le corps :
 
 | Variable | Contenu |
 |---|---|
 | `{type_cours}` | Nom du type de cours |
-| `{prenom}`, `{nom}` | Étudiant (email individuel) |
+| `{prenom}`, `{nom}` | **L'étudiant** (email individuel ; vides dans l'email groupé) |
 | `{liste_docs_pre}` | Documents pré-cours à apporter |
 | `{liste_docs_manquants}` | Documents manquants de l'étudiant |
 | `{liste_etudiants}` | Noms de tous les étudiants (email groupé seulement) |
 | `{liste_dates_lieux}` | Séances : date, heure, lieu |
 | `{liste_dates_lieux_note_coequipier}` | Version narrative : « Rendez-vous le [date] à [heure], [lieu], [notes], et nous serons accompagnés de [coéquipiers] » |
 | `{date_debut}`, `{date_fin}`, `{lieu}` | Format simple |
-| `{instructeur}`, `{instructeur_padi}`, `{instructeur_tel}` | Vos coordonnées (signature) |
+| `{instructeur}`, `{instructeur_padi}`, `{instructeur_tel}` | Vos coordonnées (signature) — `{instructeur}` est votre nom |
+| `{equipe}` | Vous et les instructeurs et coéquipiers du cours : « Arnaud LINA, Karim Ait Oumeziane et Martin Chamberland » |
 
 ### 7.3 Garder la trace des envois
 

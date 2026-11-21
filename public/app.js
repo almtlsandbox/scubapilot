@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.18.1';
+const APP_VERSION = '1.19';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -19,9 +19,167 @@ function copyTextFallback(text) {
   try { document.execCommand('copy'); } catch (e) {}
   ta.remove();
 }
+// ---------- Texte mis en forme (messages des courriels) ----------
+// Mise en forme volontairement minimale : gras, italique, souligné, double souligné. Le message est
+// gardé en HTML très simple (bodyHtml des modèles) ; tout le reste est retiré (sanitizeEmailHtml).
+const DOUBLE_UNDERLINE_STYLE = 'text-decoration: underline; text-decoration-style: double; text-underline: double';
+function textToHtml(text) {
+  return escapeHtml(String(text == null ? '' : text)).replace(/\r?\n/g, '<br>');
+}
+// Corps HTML d'un modèle : sa version mise en forme si elle existe, sinon son texte brut converti.
+function templateBodyHtml(tpl) {
+  return tpl && tpl.bodyHtml ? tpl.bodyHtml : textToHtml(tpl ? tpl.body : '');
+}
+// HTML -> texte brut (pour la version « texte seul » du presse-papiers et le champ body des modèles).
+function htmlToPlainText(html) {
+  // Un bloc (<div>, <p>, <li>) commence sur une nouvelle ligne, sauf s'il en commence déjà une
+  // (comme dans le navigateur : « a<div>b</div> » et « a<br><div>b</div> » donnent deux lignes).
+  let out = '';
+  String(html || '').split(/(<[^>]*>)/).forEach(part => {
+    if (/^<br\s*\/?>$/i.test(part)) out += '\n';
+    else if (/^<(div|p|li)\b/i.test(part)) { if (out && !out.endsWith('\n')) out += '\n'; }
+    else if (/^<\/(p)>$/i.test(part)) out += '\n';
+    else if (!/^</.test(part)) out += part;
+  });
+  return out
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+    .replace(/\n$/, '');
+}
+// Variables dans un message HTML : même règle que mergeTemplate (une variable vide emporte l'espace
+// qui la précède), les valeurs sont échappées et leurs retours à la ligne deviennent des <br>.
+function mergeTemplateHtml(html, ctx) {
+  return String(html || '').replace(/((?:[ \t]|&nbsp;)?)\{(\w+)\}/g, (m, sp, k) => {
+    if (ctx[k] === undefined) return m;
+    return ctx[k] === '' ? '' : sp + textToHtml(ctx[k]);
+  });
+}
+// Ne garde que le texte, les retours à la ligne et les 4 mises en forme permises.
+function sanitizeEmailHtml(html) {
+  const doc = new DOMParser().parseFromString(`<div>${html || ''}</div>`, 'text/html');
+  const out = [];
+  const walk = node => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { out.push(escapeHtml(n.nodeValue)); continue; }
+      if (n.nodeType !== 1) continue;
+      const tag = n.tagName.toLowerCase();
+      if (tag === 'br') { out.push('<br>'); continue; }
+      if (['script', 'style', 'head', 'title', 'meta'].includes(tag)) continue;
+      const st = (n.getAttribute('style') || '').toLowerCase();
+      const wrap = [];
+      if (tag === 'b' || tag === 'strong' || /font-weight\s*:\s*(bold|[6-9]00)/.test(st)) wrap.push('b');
+      if (tag === 'i' || tag === 'em' || /font-style\s*:\s*italic/.test(st)) wrap.push('i');
+      const dbl = (n.classList && n.classList.contains('u2')) || /double/.test(st);
+      if (dbl) wrap.push('u2');
+      else if (tag === 'u' || /text-decoration[^;]*underline/.test(st)) wrap.push('u');
+      const block = ['div', 'p', 'li', 'h1', 'h2', 'h3', 'h4', 'tr'].includes(tag);
+      if (block && out.length && !/<br>$/.test(out[out.length - 1]) && out.join('').length) out.push('<br>');
+      wrap.forEach(w => out.push(w === 'u2' ? `<span class="u2" style="${DOUBLE_UNDERLINE_STYLE}">` : `<${w}>`));
+      walk(n);
+      wrap.slice().reverse().forEach(w => out.push(w === 'u2' ? '</span>' : `</${w}>`));
+      if (block && n.nextSibling && n.nextSibling.nodeType === 3 && n.nextSibling.nodeValue.trim()) out.push('<br>');
+    }
+  };
+  walk(doc.body.firstChild);
+  return out.join('').replace(/(<br>)+$/, '');
+}
+function richEditorHtml(o) {
+  return `<div class="rich-wrap">
+    <div class="rich-toolbar" role="toolbar" aria-label="Mise en forme">
+      <button type="button" data-cmd="bold" title="Gras (Ctrl+B)" aria-label="Gras"><b>G</b></button>
+      <button type="button" data-cmd="italic" title="Italique (Ctrl+I)" aria-label="Italique"><i>I</i></button>
+      <button type="button" data-cmd="underline" title="Souligné (Ctrl+U)" aria-label="Souligné"><u>S</u></button>
+      <button type="button" data-cmd="double" title="Double souligné" aria-label="Double souligné"><span style="${DOUBLE_UNDERLINE_STYLE}">S</span></button>
+      <button type="button" data-cmd="clear" title="Retirer la mise en forme de la sélection" aria-label="Retirer la mise en forme">⌫</button>
+    </div>
+    <div class="rich-editor ${o.cls || ''}" ${o.id ? `id="${o.id}"` : ''} contenteditable="true" role="textbox" aria-multiline="true" aria-label="${escapeHtml(o.label || 'Message')}" spellcheck="true" style="min-height:${o.minHeight || 160}px">${o.html || ''}</div>
+  </div>`;
+}
+function wireRichEditor(container) {
+  container.querySelectorAll('.rich-wrap').forEach(wrap => {
+    if (wrap.dataset.wired) return;
+    wrap.dataset.wired = '1';
+    const editor = wrap.querySelector('.rich-editor');
+    wrap.querySelectorAll('.rich-toolbar button').forEach(b => {
+      b.addEventListener('mousedown', e => e.preventDefault()); // garde la sélection dans le texte
+      b.addEventListener('click', () => {
+        editor.focus();
+        const cmd = b.dataset.cmd;
+        if (cmd === 'double') toggleDoubleUnderline(editor);
+        else if (cmd === 'clear') { document.execCommand('removeFormat'); unwrapDoubleInSelection(editor); }
+        else document.execCommand(cmd);
+      });
+    });
+    // Coller : on garde les 4 mises en forme permises, on retire le reste (polices, couleurs, tableaux…).
+    editor.addEventListener('paste', e => {
+      const cd = e.clipboardData; if (!cd) return;
+      e.preventDefault();
+      const html = cd.getData('text/html');
+      document.execCommand('insertHTML', false, html ? sanitizeEmailHtml(html) : textToHtml(cd.getData('text/plain')));
+    });
+  });
+}
+function selectionRangeIn(editor) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return null;
+  const r = sel.getRangeAt(0);
+  return editor.contains(r.commonAncestorContainer) ? r : null;
+}
+function unwrapNode(n) { while (n.firstChild) n.parentNode.insertBefore(n.firstChild, n); n.remove(); }
+function unwrapDoubleInSelection(editor) {
+  const r = selectionRangeIn(editor); if (!r) return false;
+  let found = false;
+  let anc = r.commonAncestorContainer; anc = anc.nodeType === 1 ? anc : anc.parentNode;
+  const outer = anc.closest('span.u2');
+  if (outer && editor.contains(outer)) { unwrapNode(outer); found = true; }
+  editor.querySelectorAll('span.u2').forEach(s => { if (r.intersectsNode(s)) { unwrapNode(s); found = true; } });
+  return found;
+}
+function toggleDoubleUnderline(editor) {
+  if (unwrapDoubleInSelection(editor)) return;
+  const r = selectionRangeIn(editor);
+  if (!r || r.collapsed) { toast('Sélectionnez d\'abord le texte à souligner deux fois', true); return; }
+  const span = document.createElement('span');
+  span.className = 'u2'; span.setAttribute('style', DOUBLE_UNDERLINE_STYLE);
+  span.appendChild(r.extractContents());
+  r.insertNode(span);
+  const sel = window.getSelection(), nr = document.createRange();
+  nr.selectNodeContents(span); sel.removeAllRanges(); sel.addRange(nr);
+}
+// Copie le message avec sa mise en forme (HTML) et une version texte seul pour les messageries
+// qui ne gardent pas la mise en forme.
+async function copyRich(html) {
+  const full = `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 11pt">${html}</div>`;
+  const text = htmlToPlainText(html);
+  try {
+    if (navigator.clipboard && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([full], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' })
+      })]);
+      return;
+    }
+  } catch (e) {}
+  // Repli : sélectionner le contenu mis en forme et utiliser la copie du navigateur.
+  const box = document.createElement('div');
+  box.innerHTML = full; box.style.position = 'fixed'; box.style.left = '-9999px';
+  document.body.appendChild(box);
+  const range = document.createRange(); range.selectNodeContents(box);
+  const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+  try { document.execCommand('copy'); } catch (e) { await copyText(text); }
+  sel.removeAllRanges(); box.remove();
+}
 // Champ avec bouton « copier » : cf = { id, label, value, area (zone de texte), rows, cls }.
 function copyFieldHtml(cf) {
   const idAttr = cf.id ? ` id="${cf.id}"` : '';
+  if (cf.rich) {
+    // Message mis en forme : éditeur (gras, italique, souligné, double souligné) ; le bouton copie
+    // le texte AVEC sa mise en forme, prête à coller dans Outlook ou Gmail.
+    return `<div class="copy-field copy-field-rich">
+      <div class="copy-field-head"><span class="copy-label">${escapeHtml(cf.label)}</span>
+        <button type="button" class="copy-btn" title="Copier : ${escapeHtml(cf.label)} (avec la mise en forme)" aria-label="Copier : ${escapeHtml(cf.label)}">📋 <span>Copier</span></button></div>
+      ${richEditorHtml({ id: cf.id, cls: cf.cls, html: cf.html, minHeight: cf.minHeight, label: cf.label })}
+    </div>`;
+  }
   const input = cf.area
     ? `<textarea${idAttr} class="${cf.cls || ''}" style="min-height:${cf.minHeight || 160}px">${escapeHtml(cf.value || '')}</textarea>`
     : `<input${idAttr} class="${cf.cls || ''}" value="${escapeHtml(cf.value || '')}">`;
@@ -35,12 +193,20 @@ function copyFieldHtml(cf) {
 function wireCopyButtons(container) {
   container.querySelectorAll('.copy-field').forEach(field => {
     const btn = field.querySelector('.copy-btn');
-    const input = field.querySelector('input, textarea');
+    const editor = field.querySelector('.rich-editor');
+    const input = editor || field.querySelector('input, textarea');
     if (!btn || !input || btn.dataset.wired) return;
     btn.dataset.wired = '1';
+    if (editor) wireRichEditor(field);
     btn.addEventListener('click', async () => {
-      if (!input.value.trim()) { toast('Ce champ est vide : rien à copier', true); return; }
-      await copyText(input.value);
+      if (editor) {
+        const html = sanitizeEmailHtml(editor.innerHTML);
+        if (!htmlToPlainText(html).trim()) { toast('Ce champ est vide : rien à copier', true); return; }
+        await copyRich(html);
+      } else {
+        if (!input.value.trim()) { toast('Ce champ est vide : rien à copier', true); return; }
+        await copyText(input.value);
+      }
       const span = btn.querySelector('span');
       btn.classList.add('copied'); span.textContent = 'Copié';
       setTimeout(() => { btn.classList.remove('copied'); span.textContent = 'Copier'; }, 1600);
@@ -103,8 +269,9 @@ function showMailModal(o) {
         <h3>${escapeHtml(o.title || 'Courriel')}</h3>
         <p class="muted">Copiez chaque élément avec 📋, puis collez-le dans votre messagerie.</p>
         ${copyFieldHtml({ label: 'À', value: o.to })}
+        ${o.cc ? copyFieldHtml({ label: 'Cc', value: o.cc }) : ''}
         ${copyFieldHtml({ label: 'Objet', value: o.subject })}
-        ${copyFieldHtml({ label: 'Message', value: o.body, area: true, minHeight: 200 })}
+        ${o.bodyHtml !== undefined ? copyFieldHtml({ label: 'Message', html: o.bodyHtml, rich: true, minHeight: 200 }) : copyFieldHtml({ label: 'Message', value: o.body, area: true, minHeight: 200 })}
         ${o.note ? `<p class="muted">${escapeHtml(o.note)}</p>` : ''}
         <div class="actions-inline" style="justify-content:flex-end">
           ${o.action ? `<button class="btn secondary" id="mail-modal-action">${escapeHtml(o.action.label)}</button>` : ''}
@@ -1672,6 +1839,37 @@ function buildSessionsContext(course) {
   return { listeDatesLieux, listeDatesLieuxNoteCoequipier, dateDebut, dateFin, lieu };
 }
 
+// Équipe d'un cours : les instructeurs rattachés au cours, puis les coéquipiers des séances
+// (Divemasters, autres instructeurs), sans doublon. Sert à la copie (Cc) des courriels et à {equipe}.
+function courseTeam(course) {
+  const ids = [...(course.instructorIds || [])];
+  (course.sessions || []).forEach(sess => (sess.coequipierIds || []).forEach(id => ids.push(id)));
+  const seen = new Set();
+  return ids.map(id => buddyById(id)).filter(b => b && !seen.has(b.id) && seen.add(b.id));
+}
+const sameAddress = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+const sameName = (a, b) => normHead(a) === normHead(b);
+// Adresses à mettre en copie : instructeurs et coéquipiers du cours (sauf vous, déjà destinataire),
+// précédées des adresses données (ex. : le Cc par défaut des Paramètres), sans doublon.
+function courseCcList(course, extra) {
+  const me = state.settings && state.settings.instructorEmail;
+  const out = [];
+  const add = a => { a = String(a || '').trim(); if (a && !sameAddress(a, me) && !out.some(x => sameAddress(x, a))) out.push(a); };
+  (extra || []).forEach(add);
+  courseTeam(course).forEach(b => add(b.email));
+  return out;
+}
+// « Arnaud LINA, Karim Ait Oumeziane et Martin Chamberland » : vous d'abord, puis l'équipe du cours.
+function courseTeamNames(course) {
+  const me = (state.settings && state.settings.instructorName) || '';
+  const names = me ? [me] : [];
+  courseTeam(course).forEach(b => {
+    if ((me && sameName(b.name, me)) || sameAddress(b.email, state.settings && state.settings.instructorEmail)) return;
+    if (!names.some(n => sameName(n, b.name))) names.push(b.name);
+  });
+  return names.length <= 1 ? (names[0] || '') : names.slice(0, -1).join(', ') + ' et ' + names[names.length - 1];
+}
+
 // Contexte pour un email personnalisé à UN étudiant (inclut ses documents manquants à lui).
 function buildEmailContext(course, type, s) {
   const sc = buildSessionsContext(course);
@@ -1688,6 +1886,7 @@ function buildEmailContext(course, type, s) {
     instructeur: state.settings.instructorName || '',
     instructeur_tel: state.settings.instructorPhone || '',
     instructeur_padi: state.settings.instructorPadi || '',
+    equipe: courseTeamNames(course),
     liste_docs_pre: allPre.length ? '- ' + allPre.join('\n- ') : '(aucun)',
     liste_docs_manquants: missingPre.length ? '- ' + missingPre.join('\n- ') : '(aucun document manquant)'
   };
@@ -1709,6 +1908,7 @@ function buildGroupEmailContext(course, type) {
     instructeur: state.settings.instructorName || '',
     instructeur_tel: state.settings.instructorPhone || '',
     instructeur_padi: state.settings.instructorPadi || '',
+    equipe: courseTeamNames(course),
     liste_docs_pre: allPre.length ? '- ' + allPre.join('\n- ') : '(aucun)',
     liste_docs_manquants: ''
   };
@@ -1721,8 +1921,9 @@ function renderEmailBatch(box, course, type, tpl) {
   if (!withEmail.length) { box.appendChild(el('<p class="muted">Aucun étudiant avec une adresse email.</p>')); return; }
   const composed = withEmail.map(s => {
     const ctx = buildEmailContext(course, type, s);
-    return { student: s, subject: mergeTemplate(tpl.subject, ctx), body: mergeTemplate(tpl.body, ctx) };
+    return { student: s, subject: mergeTemplate(tpl.subject, ctx), bodyHtml: mergeTemplateHtml(templateBodyHtml(tpl), ctx) };
   });
+  const cc = courseCcList(course).join(', ');
   box.appendChild(el(`<p class="muted" style="margin:10px 0">Un message par étudiant. Copiez l'adresse, l'objet et le message avec 📋, puis collez-les dans votre messagerie.</p>`));
   composed.forEach(c => {
     const item = el(`
@@ -1732,8 +1933,9 @@ function renderEmailBatch(box, course, type, tpl) {
         </div>
         <div class="student-details open">
           ${copyFieldHtml({ label: 'À', value: c.student.email, cls: 'em-to' })}
+          ${cc ? copyFieldHtml({ label: 'Cc — instructeurs et coéquipiers du cours', value: cc, cls: 'em-cc' }) : ''}
           ${copyFieldHtml({ label: 'Objet', value: c.subject, cls: 'em-subject' })}
-          ${copyFieldHtml({ label: 'Message', value: c.body, cls: 'em-body', area: true, minHeight: 140 })}
+          ${copyFieldHtml({ label: 'Message', html: c.bodyHtml, cls: 'em-body', rich: true, minHeight: 140 })}
           <div class="actions-inline"><button class="btn small secondary em-sent">✔ Marquer comme envoyé</button>
             <span class="muted" data-mail-log="${escapeHtml(c.student.folder)}" title="${escapeHtml(mailLogHistory(c.student))}">${escapeHtml(mailLogText(c.student))}</span></div>
         </div>
@@ -1754,28 +1956,27 @@ function renderGroupEmail(box, course, type, tpl) {
   box.innerHTML = '';
   if (!tpl) { box.appendChild(el('<p class="muted">Choisissez d\'abord un modèle ci-dessus.</p>')); return; }
   const studentEmails = course.students.map(s => s.email).filter(Boolean);
-  const defaultBccList = (state.settings.defaultBcc || '').split(',').map(x => x.trim()).filter(Boolean);
-  const buddyIds = new Set();
-  (course.sessions || []).forEach(sess => (sess.coequipierIds || []).forEach(id => buddyIds.add(id)));
-  const buddyEmails = [...buddyIds].map(id => { const b = state.buddies.find(x => x.id === id); return b && b.email; }).filter(Boolean);
-  const bccList = [...new Set([...studentEmails, ...defaultBccList, ...buddyEmails])];
+  const splitList = v => String(v || '').split(/[,;]/).map(x => x.trim()).filter(Boolean);
+  const ccList = courseCcList(course, splitList(state.settings.defaultCc));
+  const bccList = [...new Set([...studentEmails, ...splitList(state.settings.defaultBcc)])].filter(a => !ccList.some(c => sameAddress(c, a)));
   const ctx = buildGroupEmailContext(course, type);
   const subject = mergeTemplate(tpl.subject, ctx);
-  const body = mergeTemplate(tpl.body, ctx);
+  const bodyHtml = mergeTemplateHtml(templateBodyHtml(tpl), ctx);
+  // {prenom} et {nom} désignent l'ÉTUDIANT : dans un message groupé, ils restent vides.
+  const usesStudentName = /\{(prenom|nom)\}/.test((tpl.subject || '') + (tpl.bodyHtml || tpl.body || ''));
   const item = el(`
     <div class="student-block">
       <div class="student-header">
         <strong>Email groupé — un seul message pour tout le cours</strong>
       </div>
       <div class="student-details open">
-        <p class="muted">Vous en destinataire, CC configurable ci-dessous, étudiants + coéquipiers des séances + BCC par défaut en copie cachée (CCI). Copiez chaque élément avec 📋, puis collez-le dans votre messagerie.</p>
-        <div class="row">
-          <div>${copyFieldHtml({ id: 'grp-to', label: 'À (vous)', value: state.settings.instructorEmail || '' })}</div>
-          <div>${copyFieldHtml({ id: 'grp-cc', label: 'Cc', value: state.settings.defaultCc || '' })}</div>
-        </div>
+        <p class="muted">Vous en destinataire ; en copie (Cc), le Cc par défaut des Paramètres et les instructeurs et coéquipiers du cours ; les étudiants en copie cachée (CCI). Copiez chaque élément avec 📋, puis collez-le dans votre messagerie.</p>
+        ${usesStudentName ? `<p class="hint-warn">⚠ Ce modèle contient {prenom} ou {nom} : ces variables désignent l'étudiant et restent vides dans un message groupé. Pour vous nommer, utilisez {instructeur} ; pour nommer toute l'équipe du cours, {equipe}.</p>` : ''}
+        ${copyFieldHtml({ id: 'grp-to', label: 'À (vous)', value: state.settings.instructorEmail || '' })}
+        ${copyFieldHtml({ id: 'grp-cc', label: 'Cc — séparés par des virgules', value: ccList.join(', ') })}
         ${copyFieldHtml({ id: 'grp-bcc', label: 'Cci — séparés par des virgules', value: bccList.join(', ') })}
         ${copyFieldHtml({ id: 'grp-subject', label: 'Objet', value: subject })}
-        ${copyFieldHtml({ id: 'grp-body', label: 'Message', value: body, area: true, minHeight: 200 })}
+        ${copyFieldHtml({ id: 'grp-body', label: 'Message', html: bodyHtml, rich: true, minHeight: 200 })}
         <p class="muted" id="grp-warn"></p>
         <div class="actions-inline"><button class="btn small secondary" id="grp-sent">✔ Marquer comme envoyé aujourd'hui</button>
           <span class="muted">Une fois le courriel parti, notez-le : la date sera inscrite dans la fiche des ${course.students.filter(s => s.email).length} étudiant(s) ayant une adresse.</span></div>
@@ -2904,11 +3105,11 @@ function buildStudentDetails(course, type, s) {
   const prePctForDetails = preCountForDetails.total ? Math.round(100 * preCountForDetails.done / preCountForDetails.total) : 100;
   const postPctForDetails = postCountForDetails.total ? Math.round(100 * postCountForDetails.done / postCountForDetails.total) : 100;
   const tpl = state.emailTemplates.find(t => t.id === course.emailTemplateId);
-  let mailSubject = '', mailBody = '';
+  let mailSubject = '', mailBodyHtml = '';
   if (tpl) {
     const ctx = buildEmailContext(course, type, s);
     mailSubject = mergeTemplate(tpl.subject, ctx);
-    mailBody = mergeTemplate(tpl.body, ctx);
+    mailBodyHtml = mergeTemplateHtml(templateBodyHtml(tpl), ctx);
   }
 
   wrap.innerHTML = `
@@ -2979,7 +3180,7 @@ function buildStudentDetails(course, type, s) {
   wrap.querySelector('[data-act=open-folder]').addEventListener('click', () => openExplorer(course.id, s.folder));
   const mailBtn = wrap.querySelector('[data-act=mail]');
   if (mailBtn) mailBtn.addEventListener('click', () => showMailModal({
-    title: `Courriel à ${s.firstName} ${s.lastName}`, to: s.email, subject: mailSubject, body: mailBody,
+    title: `Courriel à ${s.firstName} ${s.lastName}`, to: s.email, cc: courseCcList(course).join(', '), subject: mailSubject, bodyHtml: mailBodyHtml,
     note: tpl ? '' : "Aucun modèle d'email n'est associé à ce cours : choisissez-en un dans l'onglet « Documents & communications » pour préremplir l'objet et le message.",
     action: { label: '✔ Marquer comme envoyé', run: async () => {
       await logMailSent(course, [s], { date: todayISO(), kind: 'individuel', template: tpl ? tpl.name : '', subject: mailSubject });
@@ -3677,7 +3878,7 @@ function buildEmailTemplatesCard() {
   const card = el(`
     <div class="card">
       <h2>Modèles d'email</h2>
-      <p class="muted">Variables disponibles : {prenom} {nom} {type_cours} {liste_dates_lieux} {liste_dates_lieux_note_coequipier} {date_debut} {date_fin} {lieu} {instructeur} {instructeur_tel} {instructeur_padi} {liste_docs_pre} {liste_docs_manquants}</p>
+      <p class="muted">Variables disponibles : {prenom} {nom} (l'étudiant — vides dans un email groupé) {type_cours} {liste_dates_lieux} {liste_dates_lieux_note_coequipier} {date_debut} {date_fin} {lieu} {instructeur} (vous) {instructeur_tel} {instructeur_padi} {equipe} (vous et les instructeurs et coéquipiers du cours) {liste_etudiants} (email groupé) {liste_docs_pre} {liste_docs_manquants}</p>
     </div>
   `);
   const list = el('<div id="tpl-list"></div>');
@@ -3720,25 +3921,29 @@ function buildEmailTemplatesCard() {
       <h3 style="margin-top:16px">${existing ? 'Modifier le modèle' : 'Nouveau modèle'}</h3>
       <label for="tpl-name">Nom du modèle (ex: "Convocation - printemps")</label><input id="tpl-name" value="${existing ? escapeHtml(existing.name) : ''}">
       <label for="tpl-subject">Sujet</label><input id="tpl-subject" value="${existing ? escapeHtml(existing.subject) : ''}">
-      <label for="tpl-body">Message</label><textarea id="tpl-body" style="min-height:160px">${existing ? escapeHtml(existing.body) : ''}</textarea>
+      <label>Message <span class="muted">— sélectionnez du texte puis G, I, S ou S double pour le mettre en forme</span></label>
+      ${richEditorHtml({ id: 'tpl-body', html: existing ? templateBodyHtml(existing) : '', minHeight: 220, label: 'Message du modèle' })}
       <div class="actions-inline">
         <button class="btn small" id="tpl-save">Enregistrer</button>
         <button class="btn small secondary" id="tpl-cancel">Annuler</button>
       </div>
       <p class="muted" id="tpl-error"></p>
     `;
+    wireRichEditor(formBox);
     formBox.querySelector('#tpl-cancel').addEventListener('click', () => { formBox.innerHTML = ''; });
     formBox.querySelector('#tpl-save').addEventListener('click', async (ev) => {
       const name = formBox.querySelector('#tpl-name').value.trim();
       const subject = formBox.querySelector('#tpl-subject').value;
-      const body = formBox.querySelector('#tpl-body').value;
+      // bodyHtml : le message mis en forme ; body : sa version texte seul (compatibilité).
+      const bodyHtml = sanitizeEmailHtml(formBox.querySelector('#tpl-body').innerHTML);
+      const body = htmlToPlainText(bodyHtml);
       if (!name) { formBox.querySelector('#tpl-error').textContent = 'Le nom du modèle est requis.'; return; }
       const next = state.emailTemplates.slice();
       if (existing) {
         const idx = next.findIndex(x => x.id === existing.id);
-        next[idx] = { ...existing, name, subject, body };
+        next[idx] = { ...existing, name, subject, body, bodyHtml };
       } else {
-        next.push({ id: 'tpl-' + Date.now(), name, subject, body });
+        next.push({ id: 'tpl-' + Date.now(), name, subject, body, bodyHtml });
       }
       await withBusy(ev.currentTarget, async () => {
         try {
@@ -3764,7 +3969,7 @@ function buildBuddiesCard() {
   const card = el(`
     <div class="card">
       <h2>Coéquipiers (Divemaster, autres instructeurs...)</h2>
-      <p class="muted">Enregistrez-les une fois ici ; vous pourrez ensuite les ajouter à une séance en un clic avec le "+". Leur email sera automatiquement inclus en copie cachée (CCI) dans l'email groupé du cours.</p>
+      <p class="muted">Enregistrez-les une fois ici ; vous pourrez ensuite les ajouter à une séance en un clic avec le "+". Leur email sera automatiquement mis en copie (Cc) des courriels du cours où ils interviennent.</p>
     </div>
   `);
   const list = el('<div id="buddy-list"></div>');

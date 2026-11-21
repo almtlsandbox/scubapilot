@@ -317,3 +317,38 @@ test('tableau de bord allégé', async (t) => {
     assert.equal(s.pendingCount, 1);
   });
 });
+
+test('courriels : message mis en forme, équipe et copie', async (t) => {
+  ui.setState({
+    settings: { instructorName: 'Arnaud LINA', instructorEmail: 'arnaud@exemple.ca' },
+    buddies: [
+      { id: 'b1', name: 'Arnaud LINA', role: 'Instructeur', email: 'Arnaud@Exemple.ca' },
+      { id: 'b2', name: 'Karim Ait Oumeziane', role: 'Instructeur', email: 'karim@exemple.ca' },
+      { id: 'b3', name: 'Martin Chamberland', role: 'Dive Master', email: 'martin@exemple.ca' },
+      { id: 'b4', name: 'Sans Courriel', role: 'DM' }
+    ]
+  });
+  const c = { id: 'X', instructorIds: ['b1', 'b2'], sessions: [{ date: '2026-12-04', coequipierIds: ['b2', 'b3'] }, { date: '2026-12-05', coequipierIds: ['b4'] }] };
+  await t.test('texte -> HTML et retour', () => {
+    assert.equal(ui.call('textToHtml', 'Bonjour <tous>\nA & B'), 'Bonjour &lt;tous&gt;<br>A &amp; B');
+    assert.equal(ui.call('htmlToPlainText', 'Un <b>gras</b><br>deux<div>trois</div><div>&nbsp;quatre &amp; cinq</div>'), 'Un gras\ndeux\ntrois\n quatre & cinq');
+    assert.equal(ui.call('htmlToPlainText', 'b<div><br></div><div>c</div>'), 'b\n\nc');
+    assert.equal(ui.call('templateBodyHtml', { body: 'a\nb' }), 'a<br>b');
+    assert.equal(ui.call('templateBodyHtml', { body: 'a\nb', bodyHtml: '<b>a</b><br>b' }), '<b>a</b><br>b');
+  });
+  await t.test('variables dans un message HTML', () => {
+    const ctx = { prenom: '', nom: '', instructeur: 'Arnaud LINA', liste: '- 4 déc.\n- 5 déc. <piscine>' };
+    assert.equal(ui.call('mergeTemplateHtml', 'Bonjour {prenom},<br>Je suis <b>{instructeur}</b>.<br>{liste}<br>{inconnu}', ctx),
+      'Bonjour,<br>Je suis <b>Arnaud LINA</b>.<br>- 4 déc.<br>- 5 déc. &lt;piscine&gt;<br>{inconnu}');
+    assert.equal(ui.call('mergeTemplateHtml', 'Bonjour&nbsp;{prenom}, ok', { prenom: '' }), 'Bonjour, ok');
+  });
+  await t.test('équipe du cours', () => {
+    assert.deepEqual(ui.call('courseTeam', c).map(b => b.id), ['b1', 'b2', 'b3', 'b4']);
+    assert.equal(ui.call('courseTeamNames', c), 'Arnaud LINA, Karim Ait Oumeziane, Martin Chamberland et Sans Courriel');
+    assert.equal(ui.call('courseTeamNames', { sessions: [] }), 'Arnaud LINA');
+  });
+  await t.test('copie (Cc) : équipe sans vous, sans doublon', () => {
+    assert.deepEqual(ui.call('courseCcList', c), ['karim@exemple.ca', 'martin@exemple.ca']);
+    assert.deepEqual(ui.call('courseCcList', c, ['info@centre.ca', 'KARIM@exemple.ca']), ['info@centre.ca', 'KARIM@exemple.ca', 'martin@exemple.ca']);
+  });
+});
