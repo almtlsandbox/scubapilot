@@ -333,3 +333,5 @@ button.stat-tile { text-align: left; font: inherit; cursor: pointer; width: 100%
 .cert-chip.info { background: #e8f1f9; border-color: #bcd6ec; color: #0b4f80; }
 .cert-chip.neutral { background: #f1f3f5; border-color: #d6dce2; color: #4a5a6a; }
 .cert-chip:hover { filter: brightness(.96); text-decoration: underline; }
+.cert-chip.ok.mine { background: #12784a; border-color: #12784a; color: #fff; }
+.cert-chip .chip-by { opacity: .8; font-size: 11px; }

@@ -391,3 +391,28 @@ test('répertoire des étudiants', () => {
   assert.deepEqual(names({ state: 'toconfirm' }), ['Ana', 'Zoé']);
   assert.deepEqual(ui.call('sortStudentDirectory', dir, 'recent').map(p => p.firstName), ['Ana', 'Marc', 'Zoé']);
 });
+
+test('répertoire : certifiés par moi ou par un autre instructeur', () => {
+  ui.setState({
+    settings: { instructorName: 'Arnaud LINA', instructorEmail: 'arnaud@x.ca' },
+    buddies: [{ id: 'me', name: 'Arnaud Lina', email: '' }, { id: 'k', name: 'Karim A', email: 'k@x.ca' }, { id: 'me2', name: 'Autre nom', email: 'ARNAUD@x.ca' }],
+    studentFields: []
+  });
+  assert.equal(ui.call('isMyBuddyId', 'me'), true);
+  assert.equal(ui.call('isMyBuddyId', 'me2'), true);
+  assert.equal(ui.call('isMyBuddyId', 'k'), false);
+  assert.equal(ui.call('isMyBuddyId', ''), false);
+  const courses = [{ id: 'A', typeCode: 'OWD', sessions: [{ date: '2026-05-01' }] }, { id: 'B', typeCode: 'AOWD', sessions: [{ date: '2026-06-01' }] }];
+  const records = [
+    { courseId: 'A', folder: 'x', studentId: 'etu_000000000001', firstName: 'Zoé', lastName: 'A', certificationConfirmed: true, certifyingInstructorId: 'me' },
+    { courseId: 'B', folder: 'x', studentId: 'etu_000000000001', firstName: 'Zoé', lastName: 'A', certificationConfirmed: true, certifyingInstructorId: 'k' },
+    { courseId: 'A', folder: 'y', studentId: 'etu_000000000002', firstName: 'Marc', lastName: 'B', certificationConfirmed: true, certifyingInstructorId: 'k' },
+    { courseId: 'A', folder: 'z', studentId: 'etu_000000000003', firstName: 'Ana', lastName: 'C' }
+  ];
+  const dir = ui.call('buildStudentDirectory', records, courses);
+  const names = f => dir.filter(p => ui.call('studentDirMatches', p, f)).map(p => p.firstName).sort();
+  assert.deepEqual(names({ by: 'me' }), ['Zoé']);
+  assert.deepEqual(names({ by: 'other' }), ['Marc', 'Zoé']);
+  assert.deepEqual(names({ by: 'me', typeCode: 'AOWD' }), []);
+  assert.deepEqual(names({ by: 'other', typeCode: 'OWD' }), ['Marc']);
+});

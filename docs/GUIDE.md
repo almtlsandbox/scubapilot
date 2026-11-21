@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.20 — Novembre 2026**
+**Version 1.20.1 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -284,7 +284,9 @@ Le menu **Étudiants** (à gauche) liste toutes les personnes de tous vos cours,
 - **ses cours et certifications**, une pastille par cours, du plus récent au plus ancien : ✅ **certifié** (vert), ⏳ **à confirmer** (orange : cours terminé, certification pas encore confirmée), 🗓️ **à venir ou en cours** (bleu), 📘 **cours seulement** (gris). Survolez une pastille pour le détail (date, instructeur certificateur, transfert du dossier) ; un clic ouvre le cours ;
 - la date et le centre de son **dernier cours**.
 
-Les quatre tuiles du haut comptent les cours dans chaque état ; un clic sur une tuile filtre la liste (un deuxième clic retire le filtre). Vous pouvez aussi **rechercher** (nom, courriel, téléphone), filtrer par **cours / certification** (ex. tous les Open Water certifiés : choisissez Open Water Diver et l'état Certifié) et **trier** par nom ou par cours le plus récent. **⬇ Exporter (Excel)** enregistre la liste affichée en CSV (coordonnées, certifications confirmées, à confirmer, etc.).
+Les certifications **faites par vous** se distinguent : leur pastille est **vert plein avec une ★** ; celles d'un autre instructeur restent vert pâle, avec son nom. Le filtre **Certifié par** montre soit vos certifications (« Moi »), soit celles d'un autre instructeur, et la tuile « Certifié » indique combien sont de vous. ScubaPilot vous reconnaît dans la liste des coéquipiers par le **nom** ou le **courriel** de vos coordonnées (Paramètres) : ajoutez-vous comme coéquipier et choisissez-vous comme instructeur certificateur dans la fiche de l'étudiant.
+
+Les quatre tuiles du haut comptent les cours dans chaque état ; un clic sur une tuile filtre la liste (un deuxième clic retire le filtre). Vous pouvez aussi **rechercher** (nom, courriel, téléphone), filtrer par **cours / certification** (ex. tous les Open Water certifiés : choisissez Open Water Diver et l'état Certifié), par **certificateur** et **trier** par nom ou par cours le plus récent. **⬇ Exporter (Excel)** enregistre la liste affichée en CSV (coordonnées, certifications confirmées, à confirmer, etc.).
 
 Un clic sur une ligne ouvre la **fiche globale** de la personne.
 

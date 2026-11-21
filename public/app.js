@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.20';
+const APP_VERSION = '1.20.1';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -2784,6 +2784,13 @@ function studentCertState(record, course) {
   const d = course ? courseDates(course) : { last: '' };
   return d.last && d.last < todayISO() ? 'toconfirm' : 'pending';
 }
+// Le coéquipier qui vous représente (vous, l'instructeur de l'application) : même nom que dans
+// Paramètres (majuscules et accents ignorés) ou même courriel.
+function isMyBuddyId(id) {
+  const b = id && buddyById(id), st = state.settings || {};
+  if (!b) return false;
+  return !!((st.instructorName && sameName(b.name, st.instructorName)) || (st.instructorEmail && b.email && sameAddress(b.email, st.instructorEmail)));
+}
 // Regroupe les fiches (une par cours) en personnes, avec pour chacune la liste de ses cours et leur état.
 function buildStudentDirectory(records, courses) {
   const byId = {};
@@ -2793,7 +2800,8 @@ function buildStudentDirectory(records, courses) {
       const c = byId[r.courseId];
       const d = c ? courseDates(c) : { first: '', last: '' };
       return { courseId: r.courseId, folder: r.folder, typeCode: c ? c.typeCode : String(r.courseId).split('_')[0], centerId: c ? c.centerId : '',
-        first: d.first || '', last: d.last || '', state: studentCertState(r, c), certifiedBy: r.certifyingInstructorId || '', fileTransferred: !!r.fileTransferred };
+        first: d.first || '', last: d.last || '', state: studentCertState(r, c), certifiedBy: r.certifyingInstructorId || '',
+        certifiedByMe: isMyBuddyId(r.certifyingInstructorId), fileTransferred: !!r.fileTransferred };
     }).sort((a, b) => (b.first || '').localeCompare(a.first || ''));
     // Coordonnées : celles de la fiche la plus récente, complétées par les plus anciennes.
     const recs = pn.records.slice().sort((a, b) => {
@@ -2809,21 +2817,23 @@ function buildStudentDirectory(records, courses) {
     };
   });
 }
-// filters = { q, typeCode, state } : le type ET l'état doivent concerner le même cours.
+// filters = { q, typeCode, state, by } : le type, l'état et le certificateur doivent concerner le même cours.
+// by = 'me' (certifié par vous) ou 'other' (certifié par un autre instructeur).
 function studentDirMatches(p, f) {
   if (f.q) {
     const hay = `${p.firstName} ${p.lastName} ${p.email} ${p.phone}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     const words = f.q.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\s+/).filter(Boolean);
     if (!words.every(w => hay.includes(w))) return false;
   }
-  if (f.typeCode || f.state) return p.items.some(i => (!f.typeCode || i.typeCode === f.typeCode) && (!f.state || i.state === f.state));
+  if (f.typeCode || f.state || f.by) return p.items.some(i => (!f.typeCode || i.typeCode === f.typeCode) && (!f.state || i.state === f.state)
+    && (!f.by || (i.state === 'certified' && (f.by === 'me' ? i.certifiedByMe : !i.certifiedByMe))));
   return true;
 }
 function sortStudentDirectory(list, sort) {
   const byName = (a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, 'fr', { sensitivity: 'base' });
   return list.slice().sort(sort === 'recent' ? ((a, b) => (b.lastDate || '').localeCompare(a.lastDate || '') || byName(a, b)) : byName);
 }
-const dirUi = { q: '', typeCode: '', state: '', sort: 'name' };
+const dirUi = { q: '', typeCode: '', state: '', by: '', sort: 'name' };
 async function renderStudentsDirectory() {
   const [records, courses] = await Promise.all([api('GET', '/api/global-students'), api('GET', '/api/courses')]);
   const people = buildStudentDirectory(records, courses);
@@ -2831,6 +2841,9 @@ async function renderStudentsDirectory() {
   const types = [...new Set(people.flatMap(p => p.items.map(i => i.typeCode)).filter(Boolean))]
     .sort((a, b) => courseTypeLabel(a).localeCompare(courseTypeLabel(b), 'fr'));
   const count = st => people.reduce((n, p) => n + p.items.filter(i => i.state === st).length, 0);
+  const mine = people.reduce((n, p) => n + p.items.filter(i => i.state === 'certified' && i.certifiedByMe).length, 0);
+  const meName = (state.settings && state.settings.instructorName) || 'vous';
+  const meKnown = state.buddies.some(b => isMyBuddyId(b.id));
   app.innerHTML = `
     <div class="dash-head">
       <h1>Étudiants <span class="muted small-title">· ${people.length} personne${people.length > 1 ? 's' : ''}</span></h1>
@@ -2844,14 +2857,18 @@ async function renderStudentsDirectory() {
     <div class="stat-tiles dash-tiles">
       ${['certified', 'toconfirm', 'pending', 'courseonly'].map(st => `<button type="button" class="stat-tile dir-tile ${CERT_STATES[st].cls}${dirUi.state === st ? ' selected' : ''}" data-state="${st}" aria-pressed="${dirUi.state === st}">
         <div class="stat-label">${CERT_STATES[st].icon} ${CERT_STATES[st].label}</div><div class="stat-value">${count(st)}</div>
-        <div class="stat-sub">${st === 'certified' ? 'certifications confirmées' : st === 'toconfirm' ? 'cours terminés, à confirmer' : st === 'pending' ? 'inscriptions en cours' : 'sans certification'}</div></button>`).join('')}
+        <div class="stat-sub">${st === 'certified' ? `dont <strong>${mine}</strong> par vous` : st === 'toconfirm' ? 'cours terminés, à confirmer' : st === 'pending' ? 'inscriptions en cours' : 'sans certification'}</div></button>`).join('')}
     </div>
     <div class="card">
       <div class="row" style="align-items:flex-end">
         <div><label for="dir-type">Cours / certification</label><select id="dir-type"><option value="">Tous les cours</option>${types.map(c => `<option value="${escapeHtml(c)}" ${dirUi.typeCode === c ? 'selected' : ''}>${escapeHtml(courseTypeLabel(c))}</option>`).join('')}</select></div>
         <div><label for="dir-state">État</label><select id="dir-state"><option value="">Tous</option>${Object.entries(CERT_STATES).map(([k, v]) => `<option value="${k}" ${dirUi.state === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
+        <div><label for="dir-by">Certifié par</label><select id="dir-by"><option value="">Tous les instructeurs</option>
+          <option value="me" ${dirUi.by === 'me' ? 'selected' : ''}>Moi (${escapeHtml(meName)})</option>
+          <option value="other" ${dirUi.by === 'other' ? 'selected' : ''}>Un autre instructeur</option></select></div>
         <div><label for="dir-sort">Trier par</label><select id="dir-sort"><option value="name">Nom (A → Z)</option><option value="recent" ${dirUi.sort === 'recent' ? 'selected' : ''}>Cours le plus récent</option></select></div>
       </div>
+      ${meKnown ? '' : `<p class="hint-warn" style="margin-top:12px">Pour reconnaître les certifications faites par vous, ajoutez-vous dans <a href="#/settings">Paramètres → Coéquipiers</a> avec le même nom (${escapeHtml(meName)}) ou le même courriel que dans vos coordonnées, et choisissez-vous comme instructeur certificateur.</p>`}
       <div id="dir-results"></div>
     </div>
   `;
@@ -2861,7 +2878,8 @@ async function renderStudentsDirectory() {
     const st = CERT_STATES[i.state];
     const when = i.first ? new Date(i.first + 'T12:00:00').toLocaleDateString('fr-CA', { month: 'short', year: 'numeric' }) : 'sans date';
     const tip = `${courseTypeLabel(i.typeCode)} — ${i.first ? humanDate(i.first) : 'aucune séance'} — ${st.label}${i.state === 'certified' && i.certifiedBy ? ' par ' + buddyLabelById(i.certifiedBy) : ''}${i.state === 'courseonly' ? (i.fileTransferred ? ' (dossier transféré)' : ' (dossier non transféré)') : ''}`;
-    return `<a class="cert-chip ${st.cls}" href="#/course/${encodeURIComponent(i.courseId)}" title="${escapeHtml(tip)}">${st.icon} <strong>${escapeHtml(i.typeCode)}</strong> ${escapeHtml(when)}</a>`;
+    const byMe = i.state === 'certified' && i.certifiedByMe;
+    return `<a class="cert-chip ${st.cls}${byMe ? ' mine' : ''}" href="#/course/${encodeURIComponent(i.courseId)}" title="${escapeHtml(tip)}">${byMe ? '★' : st.icon} <strong>${escapeHtml(i.typeCode)}</strong> ${escapeHtml(when)}${i.state === 'certified' && !byMe ? ' <span class="chip-by">' + escapeHtml(i.certifiedBy ? (buddyById(i.certifiedBy) || {}).name || 'autre' : 'non précisé') + '</span>' : ''}</a>`;
   };
   function render() {
     current = sortStudentDirectory(people.filter(p => studentDirMatches(p, dirUi)), dirUi.sort);
@@ -2890,6 +2908,7 @@ async function renderStudentsDirectory() {
   app.querySelector('#dir-type').addEventListener('change', e => { dirUi.typeCode = e.target.value; render(); });
   app.querySelector('#dir-state').addEventListener('change', e => { dirUi.state = e.target.value; render(); });
   app.querySelector('#dir-sort').addEventListener('change', e => { dirUi.sort = e.target.value; render(); });
+  app.querySelector('#dir-by').addEventListener('change', e => { dirUi.by = e.target.value; render(); });
   app.querySelectorAll('.dir-tile').forEach(b => b.addEventListener('click', () => {
     dirUi.state = dirUi.state === b.dataset.state ? '' : b.dataset.state;
     app.querySelector('#dir-state').value = dirUi.state; render();
@@ -2897,7 +2916,7 @@ async function renderStudentsDirectory() {
   app.querySelector('#dir-csv').addEventListener('click', () => {
     if (!current.length) { toast('Aucun étudiant à exporter', true); return; }
     const cell = v => { v = String(v == null ? '' : v); return /[";\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-    const list = (p, st) => p.items.filter(i => i.state === st).map(i => `${courseTypeLabel(i.typeCode)} (${i.last || i.first || 'sans date'})`).join(', ');
+    const list = (p, st) => p.items.filter(i => i.state === st).map(i => `${courseTypeLabel(i.typeCode)} (${i.last || i.first || 'sans date'}${st === 'certified' ? ', ' + (i.certifiedByMe ? 'par moi' : (i.certifiedBy ? (buddyById(i.certifiedBy) || {}).name || 'autre' : 'certificateur non précisé')) : ''})`).join(', ');
     const head = ['Nom', 'Prénom', 'Courriel', 'Téléphone', 'Date de naissance', 'Nombre de cours', 'Certifications confirmées', 'À confirmer', 'À venir / en cours', 'Cours seulement', 'Dernier cours', 'Centre du dernier cours'];
     const lines = current.map(p => [p.lastName, p.firstName, p.email, p.phone, p.birthDate, p.items.length, list(p, 'certified'), list(p, 'toconfirm'), list(p, 'pending'), list(p, 'courseonly'),
       p.lastDate, p.lastCenterId ? centerLabel(p.lastCenterId) : ''].map(cell).join(';'));
