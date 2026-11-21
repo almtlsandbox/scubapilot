@@ -352,3 +352,12 @@ test('courriels : message mis en forme, équipe et copie', async (t) => {
     assert.deepEqual(ui.call('courseCcList', c, ['info@centre.ca', 'KARIM@exemple.ca']), ['info@centre.ca', 'KARIM@exemple.ca', 'martin@exemple.ca']);
   });
 });
+
+test('liste des lieux avec adresse', () => {
+  ui.setState({ sites: [{ id: 's1', name: 'Piscine', address: '1 rue A' }, { id: 's2', name: 'Carrière' }, { id: 's3', name: 'Boutique', address: '3 ch. C' }] });
+  assert.equal(ui.call('buildSitesAddressList', [
+    { date: '2026-12-05', siteId: 's2' }, { date: '2026-12-04', timeStart: '21:00', siteId: 's1' },
+    { date: '2026-12-04', timeStart: '18:00', siteId: 's3' }, { date: '2026-12-06', siteId: 's1' }, { date: '2026-12-07', siteId: '' }, { date: '2026-12-08', siteId: 'supprime' }
+  ]), '- Boutique : 3 ch. C\n- Piscine : 1 rue A\n- Carrière');
+  assert.equal(ui.call('buildSitesAddressList', []), '(aucun lieu indiqué)');
+});

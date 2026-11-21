@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.19';
+const APP_VERSION = '1.19.1';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -1836,7 +1836,21 @@ function buildSessionsContext(course) {
   const dateDebut = sessions.length ? humanDate(sessions[0].date) : '';
   const dateFin = sessions.length ? humanDate(sessions[sessions.length - 1].date) : '';
   const lieu = [...new Set(sessions.map(sess => siteLabel(sess.siteId)).filter(Boolean))].join(', ');
-  return { listeDatesLieux, listeDatesLieuxNoteCoequipier, dateDebut, dateFin, lieu };
+  return { listeDatesLieux, listeDatesLieuxNoteCoequipier, dateDebut, dateFin, lieu, listeLieuxAdresses: buildSitesAddressList(sessions) };
+}
+// Lieux du cours avec leur adresse, chacun une seule fois, dans l'ordre des séances :
+// « - Boutique SubAquaTech : 7195 Chemin Chambly, St-Hubert ».
+function buildSitesAddressList(sessions) {
+  const seen = new Set(), lines = [];
+  (sessions || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.timeStart || '').localeCompare(b.timeStart || ''))
+    .forEach(sess => {
+      if (!sess.siteId || seen.has(sess.siteId)) return;
+      seen.add(sess.siteId);
+      const site = state.sites.find(x => x.id === sess.siteId);
+      if (!site) return;
+      lines.push(`- ${site.name}${site.address ? ' : ' + site.address : ''}`);
+    });
+  return lines.length ? lines.join('\n') : '(aucun lieu indiqué)';
 }
 
 // Équipe d'un cours : les instructeurs rattachés au cours, puis les coéquipiers des séances
@@ -1883,6 +1897,7 @@ function buildEmailContext(course, type, s) {
     date_debut: sc.dateDebut, date_fin: sc.dateFin, lieu: sc.lieu,
     liste_dates_lieux: sc.listeDatesLieux,
     liste_dates_lieux_note_coequipier: sc.listeDatesLieuxNoteCoequipier,
+    liste_lieux_adresses: sc.listeLieuxAdresses,
     instructeur: state.settings.instructorName || '',
     instructeur_tel: state.settings.instructorPhone || '',
     instructeur_padi: state.settings.instructorPadi || '',
@@ -1904,6 +1919,7 @@ function buildGroupEmailContext(course, type) {
     date_debut: sc.dateDebut, date_fin: sc.dateFin, lieu: sc.lieu,
     liste_dates_lieux: sc.listeDatesLieux,
     liste_dates_lieux_note_coequipier: sc.listeDatesLieuxNoteCoequipier,
+    liste_lieux_adresses: sc.listeLieuxAdresses,
     liste_etudiants: listeEtudiants,
     instructeur: state.settings.instructorName || '',
     instructeur_tel: state.settings.instructorPhone || '',
@@ -3878,7 +3894,7 @@ function buildEmailTemplatesCard() {
   const card = el(`
     <div class="card">
       <h2>Modèles d'email</h2>
-      <p class="muted">Variables disponibles : {prenom} {nom} (l'étudiant — vides dans un email groupé) {type_cours} {liste_dates_lieux} {liste_dates_lieux_note_coequipier} {date_debut} {date_fin} {lieu} {instructeur} (vous) {instructeur_tel} {instructeur_padi} {equipe} (vous et les instructeurs et coéquipiers du cours) {liste_etudiants} (email groupé) {liste_docs_pre} {liste_docs_manquants}</p>
+      <p class="muted">Variables disponibles : {prenom} {nom} (l'étudiant — vides dans un email groupé) {type_cours} {liste_dates_lieux} {liste_dates_lieux_note_coequipier} {liste_lieux_adresses} {date_debut} {date_fin} {lieu} {instructeur} (vous) {instructeur_tel} {instructeur_padi} {equipe} (vous et les instructeurs et coéquipiers du cours) {liste_etudiants} (email groupé) {liste_docs_pre} {liste_docs_manquants}</p>
     </div>
   `);
   const list = el('<div id="tpl-list"></div>');

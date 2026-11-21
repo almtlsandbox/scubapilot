@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.19 — Novembre 2026**
+**Version 1.19.1 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -361,6 +361,7 @@ Variables disponibles dans le sujet et le corps :
 | `{liste_etudiants}` | Noms de tous les étudiants (email groupé seulement) |
 | `{liste_dates_lieux}` | Séances : date, heure, lieu |
 | `{liste_dates_lieux_note_coequipier}` | Version narrative : « Rendez-vous le [date] à [heure], [lieu], [notes], et nous serons accompagnés de [coéquipiers] » |
+| `{liste_lieux_adresses}` | Les lieux du cours avec leur adresse complète, chacun une seule fois : « - Boutique SubAquaTech : 7195 Chemin Chambly, St-Hubert » |
 | `{date_debut}`, `{date_fin}`, `{lieu}` | Format simple |
 | `{instructeur}`, `{instructeur_padi}`, `{instructeur_tel}` | Vos coordonnées (signature) — `{instructeur}` est votre nom |
 | `{equipe}` | Vous et les instructeurs et coéquipiers du cours : « Arnaud LINA, Karim Ait Oumeziane et Martin Chamberland » |
