@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.20.1';
+const APP_VERSION = '1.21';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -4448,9 +4448,20 @@ function buildDocListEditor(groupLabel, initialDocs) {
     <button type="button" class="btn small secondary doclist-add" style="margin-top:6px">+ Ajouter un document</button>
   </div>`);
   const rowsBox = wrap.querySelector('.doclist-rows');
-  function addRow(doc) {
+  // Ordre des documents : poignée ⠿ à glisser, ou flèches ↑ ↓ ; « + » sous une ligne insère juste après.
+  const refreshArrows = () => {
+    const rows = [...rowsBox.children];
+    rows.forEach((r, i) => { r.querySelector('.dl-up').disabled = i === 0; r.querySelector('.dl-down').disabled = i === rows.length - 1; });
+  };
+  let dragged = null;
+  function addRow(doc, after) {
     const row = el(`
-      <div class="row" style="align-items:center;margin-bottom:4px">
+      <div class="row doclist-row" style="align-items:center;margin-bottom:4px">
+        <div style="flex:0 0 auto;min-width:0" class="dl-move">
+          <span class="dl-handle" draggable="true" title="Glisser pour déplacer" aria-hidden="true">⠿</span>
+          <button type="button" class="btn small secondary dl-up" title="Monter" aria-label="Monter ce document">↑</button>
+          <button type="button" class="btn small secondary dl-down" title="Descendre" aria-label="Descendre ce document">↓</button>
+        </div>
         <div style="flex:2;min-width:220px"><input class="dl-label" placeholder="Libellé du document" value="${escapeHtml((doc && doc.label) || '')}"></div>
         <div style="flex:1;min-width:150px">
           <select class="dl-req">
@@ -4459,15 +4470,38 @@ function buildDocListEditor(groupLabel, initialDocs) {
             <option value="conditional" ${doc && doc.requirement === 'conditional' ? 'selected' : ''}>Conditionnel (selon l'étudiant)</option>
           </select>
         </div>
-        <div style="flex:0"><button type="button" class="btn small danger dl-remove">✕</button></div>
+        <div style="flex:0 0 auto;min-width:0" class="dl-move">
+          <button type="button" class="btn small secondary dl-insert" title="Insérer un document juste en dessous" aria-label="Insérer un document en dessous">+</button>
+          <button type="button" class="btn small danger dl-remove" title="Retirer ce document" aria-label="Retirer ce document">✕</button>
+        </div>
       </div>
     `);
     row.dataset.id = (doc && doc.id) || '';
-    row.querySelector('.dl-remove').addEventListener('click', () => row.remove());
-    rowsBox.appendChild(row);
+    row.querySelector('.dl-remove').addEventListener('click', () => { row.remove(); refreshArrows(); });
+    row.querySelector('.dl-up').addEventListener('click', e => {
+      if (row.previousElementSibling) { rowsBox.insertBefore(row, row.previousElementSibling); refreshArrows(); (row.querySelector('.dl-up').disabled ? row.querySelector('.dl-down') : row.querySelector('.dl-up')).focus(); }
+    });
+    row.querySelector('.dl-down').addEventListener('click', () => {
+      if (row.nextElementSibling) { rowsBox.insertBefore(row.nextElementSibling, row); refreshArrows(); (row.querySelector('.dl-down').disabled ? row.querySelector('.dl-up') : row.querySelector('.dl-down')).focus(); }
+    });
+    row.querySelector('.dl-insert').addEventListener('click', () => addRow(null, row).querySelector('.dl-label').focus());
+    // Glisser-déposer : seule la poignée démarre le déplacement (le champ texte reste sélectionnable).
+    const handle = row.querySelector('.dl-handle');
+    handle.addEventListener('dragstart', e => { dragged = row; row.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', ''); e.dataTransfer.setDragImage(row, 20, 20); } catch (err) {} });
+    handle.addEventListener('dragend', () => { row.classList.remove('dragging'); dragged = null; refreshArrows(); });
+    row.addEventListener('dragover', e => {
+      if (!dragged || dragged === row || dragged.parentNode !== rowsBox) return;
+      e.preventDefault();
+      const r = row.getBoundingClientRect();
+      rowsBox.insertBefore(dragged, e.clientY < r.top + r.height / 2 ? row : row.nextSibling);
+    });
+    row.addEventListener('drop', e => { if (dragged) e.preventDefault(); });
+    if (after) after.after(row); else rowsBox.appendChild(row);
+    refreshArrows();
+    return row;
   }
-  (initialDocs || []).forEach(addRow);
-  wrap.querySelector('.doclist-add').addEventListener('click', () => addRow(null));
+  (initialDocs || []).forEach(d => addRow(d));
+  wrap.querySelector('.doclist-add').addEventListener('click', () => addRow(null).querySelector('.dl-label').focus());
   wrap.getValue = function () {
     const out = [];
     rowsBox.querySelectorAll(':scope > div').forEach(row => {

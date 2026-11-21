@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.20.1 — Novembre 2026**
+**Version 1.21 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -517,6 +517,14 @@ Chaque type contient quatre listes de documents :
 - `generalPreDocs` / `generalPostDocs` : documents **généraux** du cours, cochés une fois pour tout le cours.
 
 Chaque document a un libellé et une exigence (obligatoire, facultatif, conditionnel). Ne **changez pas l'identifiant** d'un document existant : il relie la case aux étudiants déjà cochés.
+
+**Ordre des documents** : c'est l'ordre des cases dans la fiche de l'étudiant, les rapports et les courriels. Pour le changer :
+
+- glissez une ligne par sa poignée **⠿** (à gauche) jusqu'à sa nouvelle place ;
+- ou utilisez les flèches **↑** et **↓** ;
+- pour ajouter un document à une place précise, cliquez sur **+** au bout de la ligne qui doit le précéder : la nouvelle ligne s'insère juste en dessous. « + Ajouter un document » l'ajoute à la fin.
+
+Cliquez sur **Enregistrer** pour garder le nouvel ordre ; il s'applique aussi aux cours déjà créés. Déplacer ou renommer un document ne touche pas les cases déjà cochées.
 
 ### Champs du profil étudiant
 

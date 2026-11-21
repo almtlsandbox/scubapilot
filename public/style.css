@@ -335,3 +335,11 @@ button.stat-tile { text-align: left; font: inherit; cursor: pointer; width: 100%
 .cert-chip:hover { filter: brightness(.96); text-decoration: underline; }
 .cert-chip.ok.mine { background: #12784a; border-color: #12784a; color: #fff; }
 .cert-chip .chip-by { opacity: .8; font-size: 11px; }
+
+/* ---------- Ordre des documents d'un type de cours (1.21) ---------- */
+.doclist-row .dl-move { display: flex; align-items: center; gap: 4px; }
+.dl-handle { cursor: grab; color: var(--text-light); font-size: 18px; padding: 0 4px; user-select: none; }
+.dl-handle:active { cursor: grabbing; }
+.dl-up, .dl-down, .dl-insert { min-width: 30px; padding-left: 6px !important; padding-right: 6px !important; }
+.doclist-row button:disabled { opacity: .35; cursor: default; }
+.doclist-row.dragging { opacity: .5; outline: 2px dashed var(--blue); border-radius: 6px; }
