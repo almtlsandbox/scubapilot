@@ -1,8 +1,22 @@
 # ScubaPilot
 
-Version 1.4 — Octobre 2026
+Version 1.20.1 — Novembre 2026
 
 Application **locale** (aucune donnée envoyée sur internet) pour un instructeur de plongée indépendant : cours, étudiants, checklists de documents, certification, communications et **facturation**.
+
+## Aperçu
+
+*Captures réalisées avec des données de démonstration.*
+
+**Tableau de bord** — chiffres clés, actions « À faire » regroupées par cours, cours à venir et passés
+
+![Tableau de bord](docs/screenshots/tableau-de-bord.jpg)
+
+| | |
+|---|---|
+| **Un cours** — dates, lieux, documents pré/post-cours, étudiants et leur avancement<br>![Fiche d'un cours](docs/screenshots/cours.jpg) | **Étudiants** — tous les étudiants, l'état de leurs certifications (★ celles faites par vous)<br>![Répertoire des étudiants](docs/screenshots/etudiants.jpg) |
+| **Suivi des factures** — brouillons, soumises, payées, totaux par centre, export Excel<br>![Suivi des factures](docs/screenshots/factures.jpg) | **Facture imprimée** — taxes, étampe, prête à enregistrer en PDF<br>![Facture imprimée](docs/screenshots/facture-imprimee.jpg) |
+| **Courriel groupé** — Cc, Cci, objet et message mis en forme, prêts à copier dans Outlook ou Gmail<br>![Courriel groupé](docs/screenshots/courriel.jpg) | |
 
 ## 📖 Documentation
 
@@ -20,7 +34,7 @@ Aide-mémoire : [installation](docs/GUIDE.md#2-installation) · [premiers pas](d
 
 ## Fonctionnalités
 
-Tableau de bord et statuts · cours multi-séances · étudiants et fiche globale · checklists (obligatoire / facultatif / conditionnel) · glisser-déposer de documents et photos · emails groupés ou individuels avec modèles · instructeur certificateur et transfert de dossier · **factures** (groupes de tarifs, parts, taxes, étampe, PDF, courriel) · rapports imprimables · sauvegarde .zip.
+Tableau de bord et statuts · cours multi-séances · répertoire des étudiants et fiche globale · checklists (obligatoire / facultatif / conditionnel) · glisser-déposer de documents et photos · emails groupés ou individuels avec modèles et mise en forme · instructeur certificateur et transfert de dossier · **factures** (groupes de tarifs, parts, taxes, étampe, PDF, courriel) · rapports imprimables · sauvegarde .zip.
 
 ## Licence et données
 
