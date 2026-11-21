@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.21 — Novembre 2026**
+**Version 1.22 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -507,7 +507,7 @@ Dans la fenêtre « Courriel au centre » de l'éditeur de facture, le bouton **
 | Sites de plongée | Lieux utilisés dans les séances |
 | Champs du profil étudiant | Champs du formulaire étudiant |
 | Sauvegarde | Archive .zip du répertoire racine |
-| À propos | Version et logo |
+| À propos | Version, logo et apparence (clair, sombre, automatique) |
 
 ### Types de cours
 
@@ -529,6 +529,12 @@ Cliquez sur **Enregistrer** pour garder le nouvel ordre ; il s'applique aussi au
 ### Champs du profil étudiant
 
 Ajoutez, modifiez ou supprimez des champs ; choisissez le type (*Texte, Téléphone, Email, Date, Texte long, Liste déroulante*), le caractère obligatoire et, pour une liste, ses options. Gardez toujours **Prénom** et **Nom** : ils nomment les dossiers sur le disque. Le champ « Statut » pilote la certification ou le transfert de dossier.
+
+### Apparence : mode clair ou sombre
+
+En bas de la barre de gauche, le bouton **🌙 Mode sombre** / **☀️ Mode clair** passe d'un mode à l'autre. Dans **Paramètres → À propos**, la liste **Apparence** propose aussi **Automatique (comme Windows)** : ScubaPilot suit alors le réglage clair ou sombre de Windows, et change tout seul quand Windows change. C'est le choix par défaut.
+
+Le choix est propre à **chaque ordinateur** (et à chaque navigateur). Les factures, leur aperçu et les pages imprimées restent toujours sur fond blanc.
 
 ### Logo
 

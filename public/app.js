@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.21';
+const APP_VERSION = '1.22';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -620,6 +620,31 @@ async function loadRefs(force) {
   refsLoaded = true;
 }
 
+// ---------- Apparence : clair, sombre ou automatique (comme Windows) ----------
+// Préférence propre à chaque ordinateur (stockage du navigateur), appliquée aussi dès le chargement
+// par un petit script dans index.html.
+const THEME_KEY = 'scubapilot-theme';
+function themePref() { try { return localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) { return 'auto'; } }
+function systemDark() { return !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches); }
+function applyTheme() {
+  const pref = themePref();
+  const dark = pref === 'dark' || (pref === 'auto' && systemDark());
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  const btn = document.getElementById('theme-toggle');
+  if (btn) { btn.textContent = dark ? '☀️ Mode clair' : '🌙 Mode sombre'; btn.setAttribute('aria-label', dark ? 'Passer en mode clair' : 'Passer en mode sombre'); }
+  const sel = document.getElementById('s-theme');
+  if (sel) sel.value = pref;
+}
+function setThemePref(pref) {
+  try { if (pref === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, pref); } catch (e) {}
+  applyTheme();
+}
+if (window.matchMedia) {
+  const mq = matchMedia('(prefers-color-scheme: dark)');
+  const onChange = () => { if (themePref() === 'auto') applyTheme(); };
+  if (mq.addEventListener) mq.addEventListener('change', onChange); else if (mq.addListener) mq.addListener(onChange);
+}
+
 // ---------- Router ----------
 // Petit encart de crédits en bas de la barre latérale : nom et version de l'application, et
 // l'instructeur pour qui elle est configurée (si renseigné dans Paramètres).
@@ -631,7 +656,12 @@ function updateSidebarFooter() {
   footer.innerHTML = `
     ${escapeHtml(APP_NAME)} v${escapeHtml(APP_VERSION)} — ${escapeHtml(APP_RELEASE)}
     ${instructorName ? `<br>${escapeHtml(instructorName)}` : ''}
+    <br><button type="button" class="theme-toggle" id="theme-toggle"></button>
   `;
+  footer.querySelector('#theme-toggle').addEventListener('click', () => {
+    setThemePref(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+  applyTheme();
 }
 
 async function route() {
@@ -5084,6 +5114,14 @@ function renderSettings() {
           </p>
         </div>
       </div>
+      <div style="max-width:360px">
+        <label for="s-theme">Apparence (sur cet ordinateur)</label>
+        <select id="s-theme">
+          <option value="auto">Automatique (comme Windows)</option>
+          <option value="light">Clair</option>
+          <option value="dark">Sombre</option>
+        </select>
+      </div>
     </div>
 
     <div class="card">
@@ -5158,6 +5196,9 @@ function renderSettings() {
     <div id="student-fields-card-container"></div>
   `;
 
+  const themeSel = document.getElementById('s-theme');
+  themeSel.value = themePref();
+  themeSel.addEventListener('change', () => setThemePref(themeSel.value));
   document.getElementById('s-check').addEventListener('click', async () => {
     const dir = document.getElementById('s-root').value;
     const r = await api('POST', '/api/settings/check-dir', { dir });
