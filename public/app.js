@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.19.1';
+const APP_VERSION = '1.20';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -649,10 +649,11 @@ async function route() {
     }
     if (view === 'dashboard') { document.querySelector('[data-route=dashboard]').classList.add('active'); await renderDashboard(); }
     else if (view === 'invoices') { document.querySelector('[data-route=invoices]').classList.add('active'); await renderInvoices(); }
+    else if (view === 'students') { document.querySelector('[data-route=students]').classList.add('active'); await renderStudentsDirectory(); }
     else if (view === 'new-course') { document.querySelector('[data-route=new-course]').classList.add('active'); renderNewCourse(); }
     else if (view === 'settings') { document.querySelector('[data-route=settings]').classList.add('active'); renderSettings(); }
     else if (view === 'course') { await renderCourseDetail(decodeURIComponent(rest.join('/'))); }
-    else if (view === 'student') { await renderStudentProfile(decodeURIComponent(rest.join('/'))); }
+    else if (view === 'student') { document.querySelector('[data-route=students]').classList.add('active'); await renderStudentProfile(decodeURIComponent(rest.join('/'))); }
     else { renderDashboard(); }
   } catch (e) {
     if (e && e.message === 'ROOT_NOT_FOUND') return renderRootMissing((e.data && e.data.rootDir) || '');
@@ -2765,6 +2766,149 @@ async function renderCourseDetail(id) {
 
   document.getElementById('add-student-btn').addEventListener('click', () => renderAddStudentForm(course, type));
   document.getElementById('bulk-import-btn').addEventListener('click', () => renderBulkImportForm(course, type));
+}
+
+// ---------- Répertoire des étudiants (toutes les personnes, tous les cours) ----------
+// Où en est un étudiant dans UN cours :
+//   certified  : certification confirmée        toconfirm : cours terminé, certification pas encore confirmée
+//   pending    : cours à venir ou en cours      courseonly : inscrit en « Cours seulement » (pas de certification)
+const CERT_STATES = {
+  certified: { label: 'Certifié', cls: 'ok', icon: '✅' },
+  toconfirm: { label: 'À confirmer', cls: 'warn', icon: '⏳' },
+  pending: { label: 'À venir / en cours', cls: 'info', icon: '🗓️' },
+  courseonly: { label: 'Cours seulement', cls: 'neutral', icon: '📘' }
+};
+function studentCertState(record, course) {
+  if (studentIsCourseOnly(record)) return 'courseonly';
+  if (record.certificationConfirmed) return 'certified';
+  const d = course ? courseDates(course) : { last: '' };
+  return d.last && d.last < todayISO() ? 'toconfirm' : 'pending';
+}
+// Regroupe les fiches (une par cours) en personnes, avec pour chacune la liste de ses cours et leur état.
+function buildStudentDirectory(records, courses) {
+  const byId = {};
+  (courses || []).forEach(c => { if (c && !c.corrupted) byId[c.id] = c; });
+  return groupPersons(records).map(pn => {
+    const items = pn.records.map(r => {
+      const c = byId[r.courseId];
+      const d = c ? courseDates(c) : { first: '', last: '' };
+      return { courseId: r.courseId, folder: r.folder, typeCode: c ? c.typeCode : String(r.courseId).split('_')[0], centerId: c ? c.centerId : '',
+        first: d.first || '', last: d.last || '', state: studentCertState(r, c), certifiedBy: r.certifyingInstructorId || '', fileTransferred: !!r.fileTransferred };
+    }).sort((a, b) => (b.first || '').localeCompare(a.first || ''));
+    // Coordonnées : celles de la fiche la plus récente, complétées par les plus anciennes.
+    const recs = pn.records.slice().sort((a, b) => {
+      const fa = (items.find(i => i.courseId === a.courseId && i.folder === a.folder) || {}).first || '';
+      const fb = (items.find(i => i.courseId === b.courseId && i.folder === b.folder) || {}).first || '';
+      return fb.localeCompare(fa);
+    });
+    const pick = k => { const r = recs.find(x => x[k]); return r ? r[k] : ''; };
+    return {
+      studentId: pn.studentId, firstName: recs[0].firstName || '', lastName: recs[0].lastName || '',
+      email: pick('email'), phone: pick('phoneCell') || pick('phoneHome') || pick('phone'), birthDate: pick('birthDate'),
+      items, lastDate: items.length ? (items[0].last || items[0].first) : '', lastCenterId: items.length ? items[0].centerId : ''
+    };
+  });
+}
+// filters = { q, typeCode, state } : le type ET l'état doivent concerner le même cours.
+function studentDirMatches(p, f) {
+  if (f.q) {
+    const hay = `${p.firstName} ${p.lastName} ${p.email} ${p.phone}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const words = f.q.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\s+/).filter(Boolean);
+    if (!words.every(w => hay.includes(w))) return false;
+  }
+  if (f.typeCode || f.state) return p.items.some(i => (!f.typeCode || i.typeCode === f.typeCode) && (!f.state || i.state === f.state));
+  return true;
+}
+function sortStudentDirectory(list, sort) {
+  const byName = (a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, 'fr', { sensitivity: 'base' });
+  return list.slice().sort(sort === 'recent' ? ((a, b) => (b.lastDate || '').localeCompare(a.lastDate || '') || byName(a, b)) : byName);
+}
+const dirUi = { q: '', typeCode: '', state: '', sort: 'name' };
+async function renderStudentsDirectory() {
+  const [records, courses] = await Promise.all([api('GET', '/api/global-students'), api('GET', '/api/courses')]);
+  const people = buildStudentDirectory(records, courses);
+  const app = document.getElementById('app');
+  const types = [...new Set(people.flatMap(p => p.items.map(i => i.typeCode)).filter(Boolean))]
+    .sort((a, b) => courseTypeLabel(a).localeCompare(courseTypeLabel(b), 'fr'));
+  const count = st => people.reduce((n, p) => n + p.items.filter(i => i.state === st).length, 0);
+  app.innerHTML = `
+    <div class="dash-head">
+      <h1>Étudiants <span class="muted small-title">· ${people.length} personne${people.length > 1 ? 's' : ''}</span></h1>
+      <div class="dash-search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+        <label for="dir-q" class="visually-hidden">Rechercher un étudiant</label>
+        <input id="dir-q" type="search" autocomplete="off" placeholder="Nom, courriel ou téléphone…" value="${escapeHtml(dirUi.q)}">
+      </div>
+      <div class="dash-actions"><button type="button" class="btn secondary" id="dir-csv">⬇ Exporter (Excel)</button></div>
+    </div>
+    <div class="stat-tiles dash-tiles">
+      ${['certified', 'toconfirm', 'pending', 'courseonly'].map(st => `<button type="button" class="stat-tile dir-tile ${CERT_STATES[st].cls}${dirUi.state === st ? ' selected' : ''}" data-state="${st}" aria-pressed="${dirUi.state === st}">
+        <div class="stat-label">${CERT_STATES[st].icon} ${CERT_STATES[st].label}</div><div class="stat-value">${count(st)}</div>
+        <div class="stat-sub">${st === 'certified' ? 'certifications confirmées' : st === 'toconfirm' ? 'cours terminés, à confirmer' : st === 'pending' ? 'inscriptions en cours' : 'sans certification'}</div></button>`).join('')}
+    </div>
+    <div class="card">
+      <div class="row" style="align-items:flex-end">
+        <div><label for="dir-type">Cours / certification</label><select id="dir-type"><option value="">Tous les cours</option>${types.map(c => `<option value="${escapeHtml(c)}" ${dirUi.typeCode === c ? 'selected' : ''}>${escapeHtml(courseTypeLabel(c))}</option>`).join('')}</select></div>
+        <div><label for="dir-state">État</label><select id="dir-state"><option value="">Tous</option>${Object.entries(CERT_STATES).map(([k, v]) => `<option value="${k}" ${dirUi.state === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
+        <div><label for="dir-sort">Trier par</label><select id="dir-sort"><option value="name">Nom (A → Z)</option><option value="recent" ${dirUi.sort === 'recent' ? 'selected' : ''}>Cours le plus récent</option></select></div>
+      </div>
+      <div id="dir-results"></div>
+    </div>
+  `;
+  const box = app.querySelector('#dir-results');
+  let current = [];
+  const chip = i => {
+    const st = CERT_STATES[i.state];
+    const when = i.first ? new Date(i.first + 'T12:00:00').toLocaleDateString('fr-CA', { month: 'short', year: 'numeric' }) : 'sans date';
+    const tip = `${courseTypeLabel(i.typeCode)} — ${i.first ? humanDate(i.first) : 'aucune séance'} — ${st.label}${i.state === 'certified' && i.certifiedBy ? ' par ' + buddyLabelById(i.certifiedBy) : ''}${i.state === 'courseonly' ? (i.fileTransferred ? ' (dossier transféré)' : ' (dossier non transféré)') : ''}`;
+    return `<a class="cert-chip ${st.cls}" href="#/course/${encodeURIComponent(i.courseId)}" title="${escapeHtml(tip)}">${st.icon} <strong>${escapeHtml(i.typeCode)}</strong> ${escapeHtml(when)}</a>`;
+  };
+  function render() {
+    current = sortStudentDirectory(people.filter(p => studentDirMatches(p, dirUi)), dirUi.sort);
+    app.querySelectorAll('.dir-tile').forEach(b => { const on = b.dataset.state === dirUi.state; b.classList.toggle('selected', on); b.setAttribute('aria-pressed', String(on)); });
+    if (!people.length) { box.innerHTML = '<p class="muted" style="margin-top:14px">Aucun étudiant pour l\'instant : ajoutez-en depuis un cours.</p>'; return; }
+    if (!current.length) { box.innerHTML = '<p class="muted" style="margin-top:14px">Aucun étudiant ne correspond.</p>'; return; }
+    const nameCount = {};
+    people.forEach(p => { const k = normPersonName(p); nameCount[k] = (nameCount[k] || 0) + 1; });
+    const homonym = p => nameCount[normPersonName(p)] > 1
+      ? ` <span class="tag-status" title="Une autre personne porte le même nom">homonyme${p.birthDate ? ' · né(e) en ' + escapeHtml(String(p.birthDate).slice(0, 4)) : ''}</span>` : '';
+    box.innerHTML = `<p class="muted" style="margin:14px 0 6px">${current.length} étudiant${current.length > 1 ? 's' : ''}${current.length < people.length ? ' sur ' + people.length : ''}</p>
+      <div class="table-scroll"><table class="course-table dir-table">
+        <thead><tr><th>Étudiant</th><th>Cours et certifications</th><th>Dernier cours</th></tr></thead>
+        <tbody>${current.map(p => `<tr class="course-row" data-sid="${escapeHtml(p.studentId)}">
+          <td><a href="#/student/${encodeURIComponent(p.studentId)}" class="dir-name"><strong>${escapeHtml(p.lastName)}</strong>, ${escapeHtml(p.firstName)}</a>${homonym(p)}
+            <div class="muted small">${escapeHtml([p.email, p.phone].filter(Boolean).join(' · ') || 'aucune coordonnée')}</div></td>
+          <td><div class="cert-chips">${p.items.map(chip).join('')}</div></td>
+          <td class="nowrap">${p.lastDate ? escapeHtml(shortDate(p.lastDate)) : '—'}<div class="muted small">${p.lastCenterId ? escapeHtml(centerLabel(p.lastCenterId)) : ''}</div></td>
+        </tr>`).join('')}</tbody></table></div>`;
+    box.querySelectorAll('tr[data-sid]').forEach(tr => {
+      tr.addEventListener('click', e => { if (!e.target.closest('a')) location.hash = '#/student/' + encodeURIComponent(tr.dataset.sid); });
+    });
+  }
+  let deb;
+  app.querySelector('#dir-q').addEventListener('input', e => { clearTimeout(deb); deb = setTimeout(() => { dirUi.q = e.target.value.trim(); render(); }, 150); });
+  app.querySelector('#dir-type').addEventListener('change', e => { dirUi.typeCode = e.target.value; render(); });
+  app.querySelector('#dir-state').addEventListener('change', e => { dirUi.state = e.target.value; render(); });
+  app.querySelector('#dir-sort').addEventListener('change', e => { dirUi.sort = e.target.value; render(); });
+  app.querySelectorAll('.dir-tile').forEach(b => b.addEventListener('click', () => {
+    dirUi.state = dirUi.state === b.dataset.state ? '' : b.dataset.state;
+    app.querySelector('#dir-state').value = dirUi.state; render();
+  }));
+  app.querySelector('#dir-csv').addEventListener('click', () => {
+    if (!current.length) { toast('Aucun étudiant à exporter', true); return; }
+    const cell = v => { v = String(v == null ? '' : v); return /[";\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const list = (p, st) => p.items.filter(i => i.state === st).map(i => `${courseTypeLabel(i.typeCode)} (${i.last || i.first || 'sans date'})`).join(', ');
+    const head = ['Nom', 'Prénom', 'Courriel', 'Téléphone', 'Date de naissance', 'Nombre de cours', 'Certifications confirmées', 'À confirmer', 'À venir / en cours', 'Cours seulement', 'Dernier cours', 'Centre du dernier cours'];
+    const lines = current.map(p => [p.lastName, p.firstName, p.email, p.phone, p.birthDate, p.items.length, list(p, 'certified'), list(p, 'toconfirm'), list(p, 'pending'), list(p, 'courseonly'),
+      p.lastDate, p.lastCenterId ? centerLabel(p.lastCenterId) : ''].map(cell).join(';'));
+    const blob = new Blob(['﻿' + [head.join(';'), ...lines].join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `ScubaPilot-etudiants-${todayISO()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast(`${current.length} étudiant(s) exporté(s)`);
+  });
+  render();
 }
 
 // ---------- Fiche étudiant globale (tous les cours d'un même étudiant) ----------

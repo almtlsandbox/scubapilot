@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.19.1 — Novembre 2026**
+**Version 1.20 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -273,7 +273,24 @@ Les pourcentages « Pré » et « Post » sont calculés à partir de la liste d
 
 ### 5.7 La fiche étudiant globale
 
-Un même étudiant peut suivre plusieurs cours. Sa **fiche globale** (lien à côté de son nom, ou via la recherche du tableau de bord) réunit :
+#### Tous les étudiants : le menu « Étudiants »
+
+Le menu **Étudiants** (à gauche) liste toutes les personnes de tous vos cours, une ligne par personne :
+
+![Le répertoire des étudiants](images/repertoire-etudiants.jpg)
+*Le répertoire des étudiants*
+
+- son **nom** (lien vers sa fiche globale), son courriel et son téléphone ; la mention **homonyme** signale deux personnes de même nom ;
+- **ses cours et certifications**, une pastille par cours, du plus récent au plus ancien : ✅ **certifié** (vert), ⏳ **à confirmer** (orange : cours terminé, certification pas encore confirmée), 🗓️ **à venir ou en cours** (bleu), 📘 **cours seulement** (gris). Survolez une pastille pour le détail (date, instructeur certificateur, transfert du dossier) ; un clic ouvre le cours ;
+- la date et le centre de son **dernier cours**.
+
+Les quatre tuiles du haut comptent les cours dans chaque état ; un clic sur une tuile filtre la liste (un deuxième clic retire le filtre). Vous pouvez aussi **rechercher** (nom, courriel, téléphone), filtrer par **cours / certification** (ex. tous les Open Water certifiés : choisissez Open Water Diver et l'état Certifié) et **trier** par nom ou par cours le plus récent. **⬇ Exporter (Excel)** enregistre la liste affichée en CSV (coordonnées, certifications confirmées, à confirmer, etc.).
+
+Un clic sur une ligne ouvre la **fiche globale** de la personne.
+
+#### La fiche globale
+
+Un même étudiant peut suivre plusieurs cours. Sa **fiche globale** (menu Étudiants, lien à côté de son nom dans un cours, ou recherche du tableau de bord) réunit :
 
 ![La fiche étudiant globale](images/fiche-globale.jpg)
 *La fiche étudiant globale*

@@ -317,3 +317,19 @@ a.stat-tile:hover { border-color: var(--blue); }
 .rich-editor { padding: 10px 12px; font-size: 14px; line-height: 1.5; outline: none; overflow-wrap: anywhere; max-height: 520px; overflow-y: auto; white-space: normal; }
 .rich-editor .u2, .rich-editor [style*="double"] { text-decoration: underline; text-decoration-style: double; }
 .hint-warn { background: #fff6e5; border: 1px solid #ecd3a3; color: #7a4a05; border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+
+/* ---------- Répertoire des étudiants (1.20) ---------- */
+button.stat-tile { text-align: left; font: inherit; cursor: pointer; width: 100%; }
+.stat-tile.info { border-top-color: var(--blue); }
+.stat-tile.neutral { border-top-color: #8a99a8; }
+.stat-tile.selected { outline: 2px solid var(--blue); outline-offset: -2px; background: #f0f6fa; }
+.dir-table td { vertical-align: top; }
+.dir-name { color: var(--blue); text-decoration: none; }
+.dir-name:hover { text-decoration: underline; }
+.cert-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cert-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: 12px; text-decoration: none; border: 1px solid; white-space: nowrap; }
+.cert-chip.ok { background: #e8f5ee; border-color: #b9dfc8; color: #0d5c38; }
+.cert-chip.warn { background: #fff4e0; border-color: #f0d3a0; color: #7a4a05; }
+.cert-chip.info { background: #e8f1f9; border-color: #bcd6ec; color: #0b4f80; }
+.cert-chip.neutral { background: #f1f3f5; border-color: #d6dce2; color: #4a5a6a; }
+.cert-chip:hover { filter: brightness(.96); text-decoration: underline; }

@@ -361,3 +361,33 @@ test('liste des lieux avec adresse', () => {
   ]), '- Boutique : 3 ch. C\n- Piscine : 1 rue A\n- Carrière');
   assert.equal(ui.call('buildSitesAddressList', []), '(aucun lieu indiqué)');
 });
+
+test('répertoire des étudiants', () => {
+  ui.setState({ studentFields: [{ id: 'status', type: 'select', options: [{ value: 'both', label: 'Cours et certification' }, { value: 'cours', label: 'Cours seulement' }] }] });
+  const courses = [
+    { id: 'OWD_01MAI2026', typeCode: 'OWD', centerId: 'c1', sessions: [{ date: '2026-05-01' }, { date: '2026-05-03' }] },
+    { id: 'AOWD_10OCT2026', typeCode: 'AOWD', centerId: 'c2', sessions: [{ date: '2026-10-10' }] },
+    { id: 'NITROX_20NOV2026', typeCode: 'NITROX', centerId: 'c1', sessions: [{ date: '2026-11-20' }] },
+    { id: 'BAD', corrupted: true }
+  ];
+  const records = [
+    { courseId: 'OWD_01MAI2026', folder: 'Zoé Lévesque', studentId: 'etu_000000000001', firstName: 'Zoé', lastName: 'Lévesque', email: 'zoe@x.ca', status: 'both', certificationConfirmed: true, certifyingInstructorId: 'b1' },
+    { courseId: 'AOWD_10OCT2026', folder: 'Zoé Lévesque', studentId: 'etu_000000000001', firstName: 'Zoé', lastName: 'Lévesque', status: 'both', phoneCell: '514' },
+    { courseId: 'NITROX_20NOV2026', folder: 'Marc Roy', studentId: 'etu_000000000002', firstName: 'Marc', lastName: 'Roy', status: 'cours' },
+    { courseId: 'OWD_01MAI2026', folder: 'Ana Bé', studentId: 'etu_000000000003', firstName: 'Ana', lastName: 'Bé', status: 'both' },
+    { courseId: 'NITROX_20NOV2026', folder: 'Ana Bé', studentId: 'etu_000000000003', firstName: 'Ana', lastName: 'Bé', status: 'both' }
+  ];
+  const dir = ui.call('buildStudentDirectory', records, courses);
+  const zoe = dir.find(p => p.firstName === 'Zoé');
+  assert.deepEqual(zoe.items.map(i => [i.typeCode, i.state]), [['AOWD', 'toconfirm'], ['OWD', 'certified']]);
+  assert.equal(zoe.email, 'zoe@x.ca'); assert.equal(zoe.phone, '514'); assert.equal(zoe.lastDate, '2026-10-10'); assert.equal(zoe.lastCenterId, 'c2');
+  assert.deepEqual(dir.find(p => p.firstName === 'Marc').items.map(i => i.state), ['courseonly']);
+  assert.deepEqual(dir.find(p => p.firstName === 'Ana').items.map(i => i.state), ['pending', 'toconfirm']);
+  const names = f => ui.call('sortStudentDirectory', dir.filter(p => ui.call('studentDirMatches', p, f)), 'name').map(p => p.firstName);
+  assert.deepEqual(names({}), ['Ana', 'Zoé', 'Marc']);
+  assert.deepEqual(names({ q: 'levesque' }), ['Zoé']);
+  assert.deepEqual(names({ typeCode: 'OWD' }), ['Ana', 'Zoé']);
+  assert.deepEqual(names({ typeCode: 'OWD', state: 'certified' }), ['Zoé']);
+  assert.deepEqual(names({ state: 'toconfirm' }), ['Ana', 'Zoé']);
+  assert.deepEqual(ui.call('sortStudentDirectory', dir, 'recent').map(p => p.firstName), ['Ana', 'Marc', 'Zoé']);
+});
