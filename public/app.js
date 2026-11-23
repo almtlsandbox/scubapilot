@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.22';
+const APP_VERSION = '1.22.1';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -2298,15 +2298,24 @@ function suggestInvoiceNumber() {
   return `${y}-${String(last + 1).padStart(3, '0')}`;
 }
 // Grille de tarifs la plus spécifique : centre+type, centre, type, générale.
-function pickPriceGroups(centerId, typeCode) {
+// level : 3 = centre + type de cours, 2 = centre (tous types), 1 = type (tous centres), 0 = générale, -1 = aucune.
+function findPriceList(centerId, typeCode) {
   const lists = state.billing.priceLists || [];
   const score = l => {
     if (l.centerId && l.centerId !== centerId) return -1;
     if (l.typeCode && l.typeCode !== typeCode) return -1;
+    if (!(l.groups || []).length) return -1;
     return (l.centerId ? 2 : 0) + (l.typeCode ? 1 : 0);
   };
   let best = null, bs = -1;
   lists.forEach(l => { const s = score(l); if (s > bs) { bs = s; best = l; } });
+  return { list: best, level: bs };
+}
+function priceListLabel(l) {
+  return `${l.centerId ? centerLabel(l.centerId) : 'Tous les centres'} — ${l.typeCode ? courseTypeLabel(l.typeCode) : 'tous les cours'}`;
+}
+function pickPriceGroups(centerId, typeCode, forced) {
+  const best = forced || findPriceList(centerId, typeCode).list;
   const groups = best && (best.groups || []).length ? best.groups : [{ label: 'Cours complet', price: 0 }];
   return groups.map((g, i) => ({ id: 'g' + (i + 1), label: g.label || '', price: Number(g.price) || 0 }));
 }
@@ -2467,6 +2476,7 @@ async function openInvoiceForm(course, type) {
           <p class="muted">Un groupe = un tarif par étudiant. Ces groupes sont <strong>copiés</strong> de votre grille de tarifs (Paramètres → Facturation) à l'ouverture de la facture : vous pouvez les modifier ici sans toucher à la grille, et inversement. « ↻ Tarifs du centre » recopie la grille.</p>
           <div class="row"><div><label for="inv-icount">Nb d'instructeurs sur le cours (part = 1 ÷ n)</label><input type="number" min="1" step="1" id="inv-icount" value="${inv.instructorCount}"></div>
           <div style="align-self:flex-end"><button class="btn secondary small" id="inv-reload">↻ Tarifs du centre</button> <button class="btn secondary small" id="inv-addgroup">+ Groupe</button></div></div>
+          <div id="inv-grid-info"></div>
           <table class="inv-edit" style="width:100%"><thead><tr><th>Description</th><th>Nb</th><th>Part</th><th>Prix unit.</th><th>Total</th><th></th></tr></thead><tbody id="inv-groups"></tbody></table>
         </div>
         <div class="card"><h3>3 · Étudiants (issus du cours)</h3>
@@ -2556,6 +2566,30 @@ async function openInvoiceForm(course, type) {
       inv.groupsEdited = false;
     }
     page.querySelector('#inv-reload').addEventListener('click', () => { reloadPrices(); build(); });
+    // D'où viennent les tarifs ? Avertit quand le centre facturé n'a pas de grille pour ce cours, et
+    // permet de partir de n'importe quelle autre grille (ex. : celle d'un autre centre).
+    (function gridInfo() {
+      const box = page.querySelector('#inv-grid-info');
+      const found = findPriceList(inv.centerId, course.typeCode);
+      const all = (state.billing.priceLists || []).filter(l => (l.groups || []).length);
+      const who = `${escapeHtml(inv.centerId ? centerLabel(inv.centerId) : 'ce centre')} — ${escapeHtml(courseTypeLabel(course.typeCode))}`;
+      const msg = found.level === 3 ? ''
+        : found.level < 0 ? `⚠ Aucune grille de tarifs pour <strong>${who}</strong> : les groupes ci-dessous sont à remplir à la main.`
+        : `⚠ Pas de grille propre à <strong>${who}</strong> : les tarifs viennent de la grille « ${escapeHtml(priceListLabel(found.list))} ».`;
+      box.innerHTML = `${msg ? `<p class="hint-warn" style="margin:10px 0 0">${msg} Pour ne plus avoir à les saisir, créez la grille dans <a href="#/settings">Paramètres → Facturation → Grilles de tarifs</a>.</p>` : ''}
+        ${all.length ? `<div style="margin-top:10px;max-width:520px"><label for="inv-pick-grid">Partir d'une autre grille de tarifs</label>
+          <select id="inv-pick-grid"><option value="">— Choisir une grille —</option>${all.map((l, i) => `<option value="${i}">${escapeHtml(priceListLabel(l))} : ${escapeHtml(l.groups.map(g => `${g.label} ${fmtMoney(Number(g.price) || 0)}`).join(' · '))}</option>`).join('')}</select></div>` : ''}`;
+      const sel = box.querySelector('#inv-pick-grid');
+      if (sel) sel.addEventListener('change', () => {
+        if (sel.value === '') return;
+        const share = Math.round(10000 / Math.max(1, inv.instructorCount)) / 10000;
+        inv.groups = pickPriceGroups(inv.centerId, course.typeCode, all[Number(sel.value)]).map(g => Object.assign(g, { share }));
+        Object.keys(inv.assign).forEach(k => { if (!inv.groups.some(g => g.id === inv.assign[k])) inv.assign[k] = inv.groups[0].id; });
+        inv.groupsEdited = true;
+        build();
+        toast('Groupes copiés depuis la grille « ' + priceListLabel(all[Number(sel.value)]) + ' » : vérifiez les prix, puis choisissez le groupe de chaque étudiant.');
+      });
+    })();
     page.querySelector('#inv-icount').addEventListener('change', e => {
       inv.instructorCount = Math.max(1, parseInt(e.target.value, 10) || 1);
       const share = Math.round(10000 / inv.instructorCount) / 10000;

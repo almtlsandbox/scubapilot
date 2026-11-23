@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.22 — Novembre 2026**
+**Version 1.22.1 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -434,7 +434,7 @@ Sur la fiche du cours, bouton **🧾 Facture**. L'éditeur affiche les paramètr
 
 
 1. **En-tête** — Centre à facturer (celui du cours par défaut ; changer de centre recharge ses tarifs tant que vous n'avez pas modifié les groupes), numéro (suggéré automatiquement : `ANNÉE-001`, `ANNÉE-002`…), date, « Réf. Cours » (préremplie avec le type et les dates, modifiable).
-2. **Groupes de tarification** — Pour chaque groupe : description, **part**, prix unitaire. Le total d'un groupe = nombre d'étudiants × part × prix. La part est proposée à **1 ÷ nombre d'instructeurs** (2 instructeurs → 0,5) ; modifiez le champ « Nb d'instructeurs » (toutes les parts sont recalculées) ou chaque part individuellement. Boutons **+ Groupe**, **↻ Tarifs du centre** (recharge la grille) et ✕ pour retirer un groupe. Ces groupes sont une **copie** de la grille de tarifs des Paramètres, faite à l'ouverture de la facture : les modifier ici ne change pas la grille, et modifier la grille ne change pas une facture déjà ouverte.
+2. **Groupes de tarification** — Pour chaque groupe : description, **part**, prix unitaire. Le total d'un groupe = nombre d'étudiants × part × prix. La part est proposée à **1 ÷ nombre d'instructeurs** (2 instructeurs → 0,5) ; modifiez le champ « Nb d'instructeurs » (toutes les parts sont recalculées) ou chaque part individuellement. Boutons **+ Groupe**, **↻ Tarifs du centre** (recharge la grille) et ✕ pour retirer un groupe. Ces groupes sont une **copie** de la grille de tarifs des Paramètres, faite à l'ouverture de la facture : les modifier ici ne change pas la grille, et modifier la grille ne change pas une facture déjà ouverte. Si le centre facturé n'a **pas de grille pour ce type de cours**, un avertissement orange le signale (les groupes viennent alors d'une grille plus générale, ou sont à remplir). La liste **Partir d'une autre grille de tarifs** montre toutes vos grilles avec leurs prix : choisissez-en une (par exemple celle d'un autre centre pour le même cours) pour copier ses groupes, puis ajustez les prix. Pour ne plus avoir à le faire, créez la grille du centre dans Paramètres → Facturation.
 3. **Étudiants** — La liste vient du cours. Affectez chacun à un groupe (au départ, tous sont dans le premier) ; cochez « Lister les noms sous chaque groupe » selon votre préférence.
 4. **Options** — T.P.S./T.V.Q. (une taxe non cochée n'apparaît pas du tout sur la facture ; sans aucune taxe, la ligne « sous-total » disparaît aussi), logo ScubaPilot, étampe, **note libre** (préremplie « Cours … avec [collègue] » quand le cours a plusieurs instructeurs), **note kilométrage** (texte libre affiché sous la note, sans effet sur le total), et **lignes supplémentaires** (frais, ou montant négatif pour un rabais).
 5. **Suivi de la facture** — voir [9.4](#94-suivi--soumise-et-payée).
