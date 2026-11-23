@@ -1,6 +1,6 @@
 {
   "name": "scubapilot",
-  "version": "1.22.1",
+  "version": "1.22.2",
   "description": "Application locale de suivi pour instructeur de plongée indépendant",
   "main": "server.js",
   "scripts": {

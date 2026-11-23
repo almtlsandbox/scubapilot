@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.22.1 — Novembre 2026**
+**Version 1.22.2 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -421,7 +421,10 @@ Dans **Paramètres → Facturation** :
 - **Taxes** : deux taxes avec libellé et taux (T.P.S. 5 % et T.V.Q. 9,975 % au départ). Elles ne s'appliquent que si vous les cochez sur une facture ;
 - **Message de pied de page** (« MERCI DE VOTRE CONFIANCE ! ») ;
 - **Étampe** : choisissez une image PNG ou JPG (idéalement fond transparent ou blanc). Elle est stockée avec vos réglages (`_ScubaPilot/stamp.json` dans le répertoire racine) ;
-- **Grilles de tarifs** : chaque grille s'applique à un centre et/ou un type de cours (ou « tous ») et contient des **groupes de prix** (description + prix unitaire), par exemple « Cours complet — 120 $ » et « Théorie + MP seulement — 70 $ ». La grille la plus précise l'emporte : centre + type, puis centre, puis type, puis générale.
+- **Grilles de tarifs** : chaque grille appartient à un **centre**, pour un type de cours précis ou pour « tous les cours » de ce centre, et contient des **groupes de prix** (description + prix unitaire), par exemple « Cours complet — 120 $ » et « Théorie + MP seulement — 70 $ ». Sur une facture, la grille du centre pour ce type de cours l'emporte, sinon celle du centre pour tous les cours.
+  - Le **tableau** liste toutes vos grilles ; **Modifier** ouvre une grille dans l'éditeur en dessous.
+  - Dans l'éditeur, les listes **Centre** et **Type de cours** servent à **choisir la grille à consulter** (elles ne déplacent jamais une grille). Si la combinaison n'a pas encore de grille, un message orange le dit, indique ce que les factures utiliseraient à la place, et propose **+ Créer cette grille** (vide) ou de la **créer en copiant** une autre grille, que vous ajustez ensuite.
+  - Cliquez sur **Enregistrer la facturation** pour garder vos changements.
 
 N'oubliez pas votre **adresse** dans « Vos coordonnées » : elle figure en en-tête.
 

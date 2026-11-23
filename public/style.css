@@ -403,3 +403,10 @@ button.stat-tile { text-align: left; font: inherit; cursor: pointer; width: 100%
 .theme-toggle { margin-top: 8px; background: none; border: 1px solid rgba(255,255,255,.3); color: inherit; border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor: pointer; font-family: inherit; }
 .theme-toggle:hover, .theme-toggle:focus-visible { background: rgba(255,255,255,.12); }
 @media print { :root[data-theme="dark"] { color-scheme: light; } }
+
+/* ---------- Grilles de tarifs (1.22.2) ---------- */
+.pl-summary td { vertical-align: top; }
+.pl-summary tr.pl-current td { background: var(--hover); }
+.pl-editor { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-top: 14px; background: var(--surface-2); }
+.pl-editor h4 { margin: 0; font-size: 14px; }
+.pl-empty .hint-warn { margin: 12px 0 0; }

@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.22.1';
+const APP_VERSION = '1.22.2';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -2299,8 +2299,8 @@ function suggestInvoiceNumber() {
 }
 // Grille de tarifs la plus spécifique : centre+type, centre, type, générale.
 // level : 3 = centre + type de cours, 2 = centre (tous types), 1 = type (tous centres), 0 = générale, -1 = aucune.
-function findPriceList(centerId, typeCode) {
-  const lists = state.billing.priceLists || [];
+function findPriceList(centerId, typeCode, lists) {
+  lists = lists || state.billing.priceLists || [];
   const score = l => {
     if (l.centerId && l.centerId !== centerId) return -1;
     if (l.typeCode && l.typeCode !== typeCode) return -1;
@@ -4424,44 +4424,89 @@ function buildBillingCard() {
         <button class="btn danger small" id="bill-stamp-del">Retirer</button></div>
       </div>
       <h3 style="margin-top:14px">Grilles de tarifs</h3>
-      <p class="muted">La grille la plus précise s'applique (centre + type, puis centre, puis type, puis générale).</p>
+      <p class="muted">Une grille donne les groupes de prix d'un centre, pour un type de cours précis ou pour « tous les cours » de ce centre. Sur une facture, la grille du centre pour ce type de cours l'emporte, sinon celle du centre pour tous les cours. Pensez à <strong>Enregistrer la facturation</strong> après vos changements.</p>
       <div id="bill-lists"></div>
-      <button class="btn secondary small" id="bill-addlist">+ Grille de tarifs</button>
       <div class="actions-inline" style="margin-top:14px"><button class="btn small" id="bill-save">Enregistrer la facturation</button></div>
       <p class="muted" id="bill-error"></p>
     </div>`);
   const box = card.querySelector('#bill-lists');
-  const centerOpts = sel => `<option value="">Tous les centres</option>` + state.centers.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === sel ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
-  const typeOpts = sel => `<option value="">Tous les types</option>` + state.courseTypes.map(t => `<option value="${escapeHtml(t.code)}" ${t.code === sel ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('');
+  // Les grilles s'affichent en deux parties :
+  //  - un tableau récapitulatif de toutes les grilles existantes ;
+  //  - un éditeur où l'on CHOISIT la combinaison centre + type à consulter. Changer ces listes ne
+  //    déplace jamais une grille : si la combinaison n'a pas de grille, on le dit, avec ce que les
+  //    factures utiliseraient à la place, et on propose de la créer (vide ou copiée d'une autre).
+  const sameCombo = (l, c, ty) => (l.centerId || '') === c && (l.typeCode || '') === ty;
+  const comboLabel = (c, ty) => `${c ? centerLabel(c) : 'Tous les centres'} — ${ty ? courseTypeLabel(ty) : 'tous les cours'}`;
+  const groupsText = l => (l.groups || []).filter(g => g.label).map(g => `${g.label} ${fmtMoney(Number(g.price) || 0)}`).join(' · ') || '(aucun groupe)';
+  let pick = lists.length ? { c: lists[0].centerId || '', ty: lists[0].typeCode || '' } : { c: (state.centers[0] || {}).id || '', ty: '' };
+  // Une grille appartient toujours à un centre. « Tous les centres » n'est proposé que pour
+  // retrouver une ancienne grille créée ainsi (les factures en tiennent encore compte).
+  const centerOpts = sel => (lists.some(l => !l.centerId) || !state.centers.length ? `<option value="" ${!sel ? 'selected' : ''}>Tous les centres (ancienne grille)</option>` : '') + state.centers.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === sel ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+  const typeOpts = sel => `<option value="">Tous les cours (du centre)</option>` + state.courseTypes.map(t => `<option value="${escapeHtml(t.code)}" ${t.code === sel ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('');
   function renderLists() {
     box.innerHTML = '';
-    lists.forEach((l, li) => {
-      l.groups = l.groups || [];
-      const w = el(`<div style="border:1px solid #d5dee5;border-radius:8px;padding:10px;margin-bottom:10px">
+    // 1. Récapitulatif
+    const sorted = lists.map((l, i) => ({ l, i })).sort((a, b) => comboLabel(a.l.centerId, a.l.typeCode).localeCompare(comboLabel(b.l.centerId, b.l.typeCode), 'fr'));
+    box.appendChild(el(sorted.length ? `<div class="table-scroll"><table class="pl-summary">
+      <thead><tr><th>Centre</th><th>Cours</th><th>Groupes et prix</th><th></th></tr></thead>
+      <tbody>${sorted.map(({ l, i }) => `<tr class="${sameCombo(l, pick.c, pick.ty) ? 'pl-current' : ''}">
+        <td>${escapeHtml(l.centerId ? centerLabel(l.centerId) : 'Tous les centres')}</td><td>${escapeHtml(l.typeCode ? courseTypeLabel(l.typeCode) : 'Tous les cours')}</td>
+        <td>${escapeHtml(groupsText(l))}</td>
+        <td class="nowrap"><button type="button" class="btn secondary small" data-edit="${i}">Modifier</button></td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted">Aucune grille : les factures démarrent avec un groupe « Cours complet » à 0 $.</p>'));
+    box.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
+      const l = lists[Number(b.dataset.edit)]; pick = { c: l.centerId || '', ty: l.typeCode || '' }; renderLists();
+      box.querySelector('.pl-editor').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }));
+    // 2. Éditeur de la combinaison choisie
+    const li = lists.findIndex(l => sameCombo(l, pick.c, pick.ty));
+    const l = li >= 0 ? lists[li] : null;
+    const ed = el(`<div class="pl-editor">
+      <h4>Voir ou modifier la grille de :</h4>
+      <div class="row" style="align-items:flex-end">
+        <div><label for="pl-c">Centre</label><select id="pl-c">${centerOpts(pick.c)}</select></div>
+        <div><label for="pl-t">Type de cours</label><select id="pl-t">${typeOpts(pick.ty)}</select></div>
+      </div>
+      <div class="pl-body"></div>
+    </div>`);
+    ed.querySelector('#pl-c').addEventListener('change', e => { pick.c = e.target.value; renderLists(); });
+    ed.querySelector('#pl-t').addEventListener('change', e => { pick.ty = e.target.value; renderLists(); });
+    const body = ed.querySelector('.pl-body');
+    if (!l) {
+      const fb = findPriceList(pick.c, pick.ty, lists);
+      const others = lists.map((x, i) => ({ x, i })).filter(({ x }) => (x.groups || []).length);
+      body.appendChild(el(`<div class="pl-empty">
+        <p class="hint-warn">Aucune grille pour <strong>${escapeHtml(comboLabel(pick.c, pick.ty))}</strong>.
+          ${pick.c && pick.ty ? `Les factures de ce centre pour ce cours utiliseront ${fb.list ? `la grille « ${escapeHtml(comboLabel(fb.list.centerId, fb.list.typeCode))} » (${escapeHtml(groupsText(fb.list))})` : 'un seul groupe « Cours complet » à 0 $'}.` : ''}</p>
         <div class="row" style="align-items:flex-end">
-          <div><label for="pl-c-${li}">Centre</label><select id="pl-c-${li}">${centerOpts(l.centerId)}</select></div>
-          <div><label for="pl-t-${li}">Type de cours</label><select id="pl-t-${li}">${typeOpts(l.typeCode)}</select></div>
-          <div><button class="btn danger small" data-act="del">Supprimer la grille</button></div>
-        </div><div class="pl-groups"></div>
-        <button class="btn secondary small" data-act="add">+ Groupe de prix</button></div>`);
-      w.querySelector(`#pl-c-${li}`).addEventListener('change', e => { l.centerId = e.target.value; });
-      w.querySelector(`#pl-t-${li}`).addEventListener('change', e => { l.typeCode = e.target.value; });
-      const gb = w.querySelector('.pl-groups');
+          <div style="flex:0 0 auto;min-width:0"><button type="button" class="btn small" id="pl-create">+ Créer cette grille</button></div>
+          ${others.length ? `<div><label for="pl-copy">ou la créer en copiant la grille :</label><select id="pl-copy"><option value="">— Choisir —</option>${others.map(({ x, i }) => `<option value="${i}">${escapeHtml(comboLabel(x.centerId, x.typeCode))} : ${escapeHtml(groupsText(x))}</option>`).join('')}</select></div>` : ''}
+        </div>
+      </div>`));
+      const create = groups => { lists.push({ centerId: pick.c, typeCode: pick.ty, groups }); renderLists(); const f = box.querySelector('.pl-editor input'); if (f) f.focus(); };
+      body.querySelector('#pl-create').addEventListener('click', () => create([{ label: '', price: 0 }]));
+      const cp = body.querySelector('#pl-copy');
+      if (cp) cp.addEventListener('change', () => { if (cp.value !== '') create(JSON.parse(JSON.stringify(lists[Number(cp.value)].groups))); });
+    } else {
+      l.groups = l.groups || [];
+      body.appendChild(el(`<p class="muted" style="margin:10px 0 0">Les factures de <strong>${escapeHtml(comboLabel(l.centerId, l.typeCode))}</strong> partiront de ces groupes :</p>`));
       l.groups.forEach((g, gi) => {
-        const r = el(`<div class="row" style="align-items:flex-end"><div><label for="pg-l-${li}-${gi}">Description</label><input id="pg-l-${li}-${gi}" value="${escapeHtml(g.label || '')}"></div><div><label for="pg-p-${li}-${gi}">Prix unitaire</label><input id="pg-p-${li}-${gi}" value="${String(g.price || 0).replace('.', ',')}"></div><div><button class="btn danger small" aria-label="Retirer ce groupe">✕</button></div></div>`);
-        r.querySelector(`#pg-l-${li}-${gi}`).addEventListener('input', e => { g.label = e.target.value; });
-        r.querySelector(`#pg-p-${li}-${gi}`).addEventListener('input', e => { g.price = parseFloat(String(e.target.value).replace(',', '.')) || 0; });
+        const r = el(`<div class="row" style="align-items:flex-end"><div><label for="pg-l-${gi}">Description</label><input id="pg-l-${gi}" value="${escapeHtml(g.label || '')}"></div><div><label for="pg-p-${gi}">Prix unitaire</label><input id="pg-p-${gi}" inputmode="decimal" value="${String(g.price || 0).replace('.', ',')}"></div><div style="flex:0 0 auto;min-width:0"><button class="btn danger small" aria-label="Retirer ce groupe">✕</button></div></div>`);
+        r.querySelector(`#pg-l-${gi}`).addEventListener('input', e => { g.label = e.target.value; });
+        r.querySelector(`#pg-p-${gi}`).addEventListener('input', e => { g.price = parseFloat(String(e.target.value).replace(',', '.')) || 0; });
         r.querySelector('button').addEventListener('click', () => { l.groups.splice(gi, 1); renderLists(); });
-        gb.appendChild(r);
+        body.appendChild(r);
       });
-      w.querySelector('[data-act=add]').addEventListener('click', () => { l.groups.push({ label: '', price: 0 }); renderLists(); });
-      w.querySelector('[data-act=del]').addEventListener('click', () => { lists.splice(li, 1); renderLists(); });
-      box.appendChild(w);
-    });
-    if (!lists.length) box.appendChild(el('<p class="muted">Aucune grille : la facture démarre avec un groupe « Cours complet » à 0 $.</p>'));
+      const act = el(`<div class="actions-inline" style="margin-top:10px">
+        <button type="button" class="btn secondary small" data-act="add">+ Groupe de prix</button>
+        <button type="button" class="btn danger small" data-act="del">Supprimer cette grille</button></div>`);
+      act.querySelector('[data-act=add]').addEventListener('click', () => { l.groups.push({ label: '', price: 0 }); renderLists(); const ins = box.querySelectorAll('.pl-editor input[id^="pg-l-"]'); if (ins.length) ins[ins.length - 1].focus(); });
+      act.querySelector('[data-act=del]').addEventListener('click', () => { lists.splice(li, 1); renderLists(); });
+      body.appendChild(act);
+    }
+    box.appendChild(ed);
   }
   renderLists();
-  card.querySelector('#bill-addlist').addEventListener('click', () => { lists.push({ centerId: '', typeCode: '', groups: [{ label: 'Cours complet', price: 0 }] }); renderLists(); });
 
   async function showStamp() {
     if (state.stamp === undefined) { try { state.stamp = (await api('GET', '/api/stamp')).dataUrl || ''; } catch (e) { state.stamp = ''; } }
