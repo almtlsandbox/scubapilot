@@ -270,6 +270,7 @@ function migrateEmailTemplates(dir) {
 // Un document a l'un de ces 3 statuts (défini dans le modèle de cours) :
 //  - "required"    : toujours nécessaire, compte toujours dans le score.
 //  - "optional"    : jamais compté dans le score (purement informatif).
+//  - "rule"        : « Automatique » : nécessaire selon l'âge et/ou le statut de l'étudiant (voir docRuleNeed).
 //  - "conditional" : nécessaire seulement pour certains étudiants (ex: certificat médical
 //                     selon le questionnaire, autorisation parentale selon l'âge) — chaque
 //                     étudiant a alors un interrupteur "Nécessaire ?" ; le document ne compte
@@ -279,7 +280,38 @@ function docRequirement(docDef) {
   if (docDef && docDef.requirement) return docDef.requirement;
   return (docDef && docDef.required === false) ? 'optional' : 'required';
 }
-function countDocGroup(entries, docDefs) {
+// Document « Automatique » (requirement "rule") : nécessaire selon une règle évaluée pour chaque
+// étudiant, sans case à cocher : rule = { maxAge: 18 } (moins de 18 ans au premier jour du cours)
+// et/ou { statuses: ['certif', 'both'] } (statut de l'étudiant parmi ceux-là). Les deux conditions,
+// quand elles sont présentes, doivent être vraies. Sans date de naissance, la règle d'âge est
+// considérée comme remplie (mieux vaut demander le document que l'oublier).
+function ageOn(birthDate, onDate) {
+  if (!/^\d{4}-\d{2}-\d{2}/.test(String(birthDate || ''))) return null;
+  const b = String(birthDate).slice(0, 10).split('-').map(Number), d = String(onDate).slice(0, 10).split('-').map(Number);
+  let age = d[0] - b[0];
+  if (d[1] < b[1] || (d[1] === b[1] && d[2] < b[2])) age--;
+  return age;
+}
+function docRuleNeed(rule, student, startDate) {
+  rule = rule || {};
+  const s = student || {};
+  const reasons = [];
+  let needed = true;
+  const maxAge = Number(rule.maxAge) || 0;
+  if (maxAge > 0) {
+    const age = ageOn(s.birthDate, startDate);
+    if (age === null) reasons.push('date de naissance manquante');
+    else if (age < maxAge) reasons.push(`${age} ans`);
+    else { needed = false; reasons.push(`${age} ans`); }
+  }
+  const statuses = Array.isArray(rule.statuses) ? rule.statuses.filter(Boolean) : [];
+  if (statuses.length) {
+    if (statuses.includes(s.status)) reasons.push(s.status);
+    else { needed = false; reasons.push(s.status || 'statut non précisé'); }
+  }
+  return { needed, reason: reasons.join(', ') };
+}
+function countDocGroup(entries, docDefs, ctx) {
   // On parcourt la liste des documents définis par le type de cours (la source de vérité),
   // et non les clés déjà enregistrées dans "entries" : une fiche étudiant créée avant l'ajout
   // d'un document au type de cours n'a pas encore d'entrée pour ce document, et il doit quand
@@ -292,6 +324,7 @@ function countDocGroup(entries, docDefs) {
     if (req === 'optional') return;
     const entry = map[def.id];
     if (req === 'conditional' && !(entry && entry.needed)) return;
+    if (req === 'rule' && ctx && ctx.student && !docRuleNeed(def.rule, ctx.student, ctx.start).needed) return;
     total++;
     if (entry && entry.collected) done++;
   });
@@ -743,12 +776,15 @@ function computeCourseStats(root, courseId, course) {
   const type = types.find(t => t.code === course.typeCode) || {};
   let totalPre = 0, donePre = 0, totalPost = 0, donePost = 0, corruptedStudents = 0;
   const students = [];
+  // Premier jour du cours (règles d'âge des documents « Automatique ») ; aujourd'hui s'il n'y a pas de séance.
+  const courseStart = (course.sessions || []).map(x => x.date).filter(Boolean).sort()[0] || new Date().toISOString().slice(0, 10);
   for (const sName of (course.students || [])) {
     const sData = readJSON(path.join(cFolder, sName, 'student.json'), null);
     if (!sData) { if (fs.existsSync(path.join(cFolder, sName, 'student.json'))) corruptedStudents++; continue; }
     if (!sData.studentId) studentIdsMayBeMissing = true; // fiche venue d'une ancienne version : sera complétée au prochain passage
-    const preC = countDocGroup(sData.preDocs, type.preDocs);
-    const postC = countDocGroup(sData.postDocs, type.postDocs);
+    const ctx = { student: sData, start: courseStart };
+    const preC = countDocGroup(sData.preDocs, type.preDocs, ctx);
+    const postC = countDocGroup(sData.postDocs, type.postDocs, ctx);
     totalPre += preC.total; donePre += preC.done;
     totalPost += postC.total; donePost += postC.done;
     const mailLog = Array.isArray(sData.mailLog) ? sData.mailLog : [];

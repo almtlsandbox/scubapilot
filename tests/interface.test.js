@@ -416,3 +416,35 @@ test('répertoire : certifiés par moi ou par un autre instructeur', () => {
   assert.deepEqual(names({ by: 'me', typeCode: 'AOWD' }), []);
   assert.deepEqual(names({ by: 'other', typeCode: 'OWD' }), ['Marc']);
 });
+
+test('documents « Automatique » : âge et statut', () => {
+  assert.equal(ui.call('ageOn', '2010-11-21', '2026-11-20'), 15);
+  assert.equal(ui.call('ageOn', '2010-11-20', '2026-11-20'), 16);
+  assert.equal(ui.call('ageOn', '', '2026-11-20'), null);
+  const minor = { maxAge: 18 }, certif = { statuses: ['certif', 'both'] };
+  const need = (rule, s, d) => ui.call('docRuleNeed', rule, s, d || '2026-12-04');
+  assert.deepEqual(need(minor, { birthDate: '2010-01-01' }), { needed: true, reason: '16 ans' });
+  assert.deepEqual(need(minor, { birthDate: '2008-12-04' }), { needed: false, reason: '18 ans' });
+  assert.deepEqual(need(minor, {}), { needed: true, reason: 'date de naissance manquante' });
+  assert.equal(need(certif, { status: 'both' }).needed, true);
+  assert.equal(need(certif, { status: 'cours' }).needed, false);
+  assert.equal(need(certif, {}).needed, false);
+  assert.equal(need({ maxAge: 18, statuses: ['both'] }, { birthDate: '2010-01-01', status: 'cours' }).needed, false);
+  assert.equal(need({}, {}).needed, true);
+  // dans le score
+  const defs = [{ id: 'q', requirement: 'required' }, { id: 'parent', requirement: 'rule', rule: minor }, { id: 'photo', requirement: 'rule', rule: certif }];
+  const entries = { q: { collected: true }, parent: { collected: false }, photo: { collected: true } };
+  const count = (s) => ui.call('countDocGroup', entries, defs, { student: s, start: '2026-12-04' });
+  assert.deepEqual(count({ birthDate: '1990-01-01', status: 'cours' }), { total: 1, done: 1 });
+  assert.deepEqual(count({ birthDate: '2012-01-01', status: 'both' }), { total: 3, done: 2 });
+  assert.deepEqual(ui.call('countDocGroup', entries, defs), { total: 3, done: 2 }, 'sans contexte : comptés');
+});
+
+test('coéquipiers proposés pour les séances : ceux du cours, sans vous', () => {
+  ui.setState({
+    settings: { instructorName: 'Arnaud LINA', instructorEmail: 'a@x.ca' },
+    buddies: [{ id: 'me', name: 'Arnaud LINA' }, { id: 'k', name: 'Karim' }, { id: 'm', name: 'Martin' }, { id: 'r', name: 'René' }]
+  });
+  assert.deepEqual(ui.call('courseBuddyChoices', { instructorIds: ['me', 'k', 'm'] }).map(b => b.id), ['k', 'm']);
+  assert.deepEqual(ui.call('courseBuddyChoices', {}), []);
+});

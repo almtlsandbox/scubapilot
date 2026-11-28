@@ -1,5 +1,5 @@
 const APP_NAME = 'ScubaPilot';
-const APP_VERSION = '1.22.2';
+const APP_VERSION = '1.23';
 const APP_RELEASE = 'Novembre 2026';
 
 // ---------- Courriels : copier-coller ----------
@@ -578,7 +578,40 @@ function docRequirement(docDef) {
   if (docDef && docDef.requirement) return docDef.requirement;
   return (docDef && docDef.required === false) ? 'optional' : 'required';
 }
-function countDocGroup(entries, docDefs) {
+// Document « Automatique » (requirement "rule") : nécessaire selon une règle évaluée pour chaque
+// étudiant, sans case à cocher : rule = { maxAge: 18 } (moins de 18 ans au premier jour du cours)
+// et/ou { statuses: ['certif', 'both'] } (statut de l'étudiant parmi ceux-là). Les deux conditions,
+// quand elles sont présentes, doivent être vraies. Sans date de naissance, la règle d'âge est
+// considérée comme remplie (mieux vaut demander le document que l'oublier).
+function ageOn(birthDate, onDate) {
+  if (!/^\d{4}-\d{2}-\d{2}/.test(String(birthDate || ''))) return null;
+  const b = String(birthDate).slice(0, 10).split('-').map(Number), d = String(onDate).slice(0, 10).split('-').map(Number);
+  let age = d[0] - b[0];
+  if (d[1] < b[1] || (d[1] === b[1] && d[2] < b[2])) age--;
+  return age;
+}
+function docRuleNeed(rule, student, startDate) {
+  rule = rule || {};
+  const s = student || {};
+  const reasons = [];
+  let needed = true;
+  const maxAge = Number(rule.maxAge) || 0;
+  if (maxAge > 0) {
+    const age = ageOn(s.birthDate, startDate);
+    if (age === null) reasons.push('date de naissance manquante');
+    else if (age < maxAge) reasons.push(`${age} ans`);
+    else { needed = false; reasons.push(`${age} ans`); }
+  }
+  const statuses = Array.isArray(rule.statuses) ? rule.statuses.filter(Boolean) : [];
+  if (statuses.length) {
+    const lab = v => (typeof statusOptionLabel === 'function' ? statusOptionLabel(v) : v);
+    if (statuses.includes(s.status)) reasons.push(lab(s.status));
+    else { needed = false; reasons.push(s.status ? lab(s.status) : 'statut non précisé'); }
+  }
+  return { needed, reason: reasons.join(', ') };
+}
+// ctx = { student, start } : nécessaire pour les documents « Automatique » d'un étudiant.
+function countDocGroup(entries, docDefs, ctx) {
   // On parcourt la liste des documents définis par le type de cours (la source de vérité),
   // et non les clés déjà enregistrées dans "entries" : une fiche étudiant créée avant l'ajout
   // d'un document au type de cours n'a pas encore d'entrée pour ce document, et il doit quand
@@ -591,10 +624,29 @@ function countDocGroup(entries, docDefs) {
     if (req === 'optional') return;
     const entry = map[def.id];
     if (req === 'conditional' && !(entry && entry.needed)) return;
+    if (req === 'rule' && ctx && ctx.student && !docRuleNeed(def.rule, ctx.student, ctx.start).needed) return;
     total++;
     if (entry && entry.collected) done++;
   });
   return { total, done };
+}
+// Contexte d'évaluation des règles pour un étudiant d'un cours (âge au premier jour du cours).
+function docCtx(course, s) {
+  return { student: s, start: (course && courseDates(course).first) || todayISO() };
+}
+// Libellés des statuts (pour décrire une règle) : ceux du champ « Statut » des fiches étudiant.
+function statusOptionLabel(v) {
+  const f = (state.studentFields || []).find(x => x.id === 'status');
+  const o = f && (f.options || []).find(x => x.value === v);
+  return o ? o.label : v;
+}
+function docRuleText(rule) {
+  rule = rule || {};
+  const parts = [];
+  if (Number(rule.maxAge) > 0) parts.push(`moins de ${Number(rule.maxAge)} ans au début du cours`);
+  const st = (rule.statuses || []).filter(Boolean);
+  if (st.length) parts.push('statut : ' + st.map(statusOptionLabel).join(' ou '));
+  return parts.length ? parts.join(' et ') : 'toujours (aucune condition)';
 }
 
 // Ces données de référence (types de cours, sites, centres...) changent rarement, alors qu'on
@@ -1533,8 +1585,8 @@ function computeOverallStats(course, type) {
   const gPost = countDocGroup(course.generalPostDocs, type.generalPostDocs);
   let totalPre = gPre.total, donePre = gPre.done, totalPost = gPost.total, donePost = gPost.done;
   (course.students || []).forEach(s => {
-    const p = countDocGroup(s.preDocs, type.preDocs);
-    const q = countDocGroup(s.postDocs, type.postDocs);
+    const p = countDocGroup(s.preDocs, type.preDocs, docCtx(course, s));
+    const q = countDocGroup(s.postDocs, type.postDocs, docCtx(course, s));
     totalPre += p.total; donePre += p.done;
     totalPost += q.total; donePost += q.done;
   });
@@ -1550,9 +1602,9 @@ function refreshCourseBadges(course, type) {
   if (preEl) { preEl.textContent = prePct + '% des documents pré-cours collectés'; preEl.className = 'badge ' + badgeClass(prePct); }
   if (postEl) { postEl.textContent = postPct + '% des documents post-cours collectés'; postEl.className = 'badge ' + badgeClass(postPct); }
 }
-function updateStudentBadges(s, type) {
-  const p = countDocGroup(s.preDocs, type.preDocs);
-  const q = countDocGroup(s.postDocs, type.postDocs);
+function updateStudentBadges(s, type, course) {
+  const p = countDocGroup(s.preDocs, type.preDocs, docCtx(course, s));
+  const q = countDocGroup(s.postDocs, type.postDocs, docCtx(course, s));
   const prePct = p.total ? Math.round(100 * p.done / p.total) : 100;
   const postPct = q.total ? Math.round(100 * q.done / q.total) : 100;
   const preBadge = document.querySelector(`[data-pre-badge="${s.folder}"]`);
@@ -1566,12 +1618,23 @@ function updateStudentBadges(s, type) {
 // recharger toute la page — c'est ce qui permet de cocher plusieurs cases à la suite sans que le panneau se referme.
 // Pour un document "conditional" (ex: certificat médical, autorisation parentale), un second interrupteur
 // "Nécessaire ?" apparaît : le document ne compte dans le score que si celui-ci est activé.
-function buildGenericChecklistItem(dataObj, group, docDef, putUrl, onChanged) {
+function buildGenericChecklistItem(dataObj, group, docDef, putUrl, onChanged, ctx) {
   const req = docRequirement(docDef);
   const entry = (dataObj[group] && dataObj[group][docDef.id]) || { collected: false, date: null, needed: req === 'required' };
   const item = el(`<div class="checklist-item-row"></div>`);
 
-  if (req === 'conditional') {
+  if (req === 'rule' && ctx && ctx.student) {
+    // « Automatique » : pas d'interrupteur, ScubaPilot dit lui-même si le document est nécessaire.
+    const r = docRuleNeed(docDef.rule, ctx.student, ctx.start);
+    item.innerHTML = `
+      <label class="checklist-item${r.needed ? '' : ' doc-not-needed'}">
+        <input type="checkbox" class="collected-toggle">
+        <span>${escapeHtml(docDef.label)}</span>
+        <span class="rule-tag ${r.needed ? 'needed' : ''}" title="Règle : ${escapeHtml(docRuleText(docDef.rule))}">${r.needed ? 'nécessaire' : 'non nécessaire'}${r.reason ? ' · ' + escapeHtml(r.reason) : ''}</span>
+        <span class="muted doc-date"></span>
+      </label>
+    `;
+  } else if (req === 'conditional') {
     item.innerHTML = `
       <label class="checklist-item">
         <input type="checkbox" class="needed-toggle" ${entry.needed ? 'checked' : ''}>
@@ -1634,6 +1697,13 @@ function buildGenericChecklistItem(dataObj, group, docDef, putUrl, onChanged) {
   return item;
 }
 
+// Coéquipiers proposés pour les séances d'un cours : seulement les instructeurs/coéquipiers choisis
+// pour CE cours (bouton « Modifier les notes / le centre / les instructeurs »), sans vous-même, qui êtes de toutes les séances.
+function courseBuddyChoices(course) {
+  return courseInstructors(course).filter(b => !isMyBuddyId(b.id));
+}
+const NO_COURSE_BUDDY_HINT = 'Aucun instructeur ou coéquipier choisi pour ce cours : ajoutez-les avec « Modifier les notes / le centre / les instructeurs » en haut de la page.';
+
 // Construit la cellule "Coéquipiers" d'une séance : chips pour les coéquipiers sélectionnés dans la
 // liste globale (avec bouton × pour retirer) + un menu "+ ajouter..." pour en choisir un autre.
 // L'ancien texte libre (versions précédentes de l'app) reste affiché en dessous si présent.
@@ -1660,12 +1730,17 @@ function buildCoequipierCell(course, realIdx, persistSessions) {
     });
   }
 
-  const available = () => state.buddies.filter(b => !selectedIds.includes(b.id));
+  const available = () => courseBuddyChoices(course).filter(b => !selectedIds.includes(b.id));
   function renderAddSelect() {
     const old = cell.querySelector('.coeq-add-select');
     if (old) old.remove();
+    const oldHint = cell.querySelector('.coeq-hint');
+    if (oldHint) oldHint.remove();
     const opts = available();
-    if (!opts.length) return;
+    if (!opts.length) {
+      if (!courseBuddyChoices(course).length && !selectedIds.length) cell.appendChild(el(`<span class="muted coeq-hint" style="font-size:12px">—</span>`));
+      return;
+    }
     const select = el(`<select class="coeq-add-select"><option value="">+ ajouter...</option>${opts.map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(buddyLabel(b))}</option>`).join('')}</select>`);
     select.addEventListener('change', async () => {
       if (!select.value) return;
@@ -1760,6 +1835,7 @@ function buildSessionsCard(course) {
       tbody.appendChild(tr);
     });
     card.appendChild(table);
+    if (!courseBuddyChoices(course).length) card.appendChild(el(`<p class="muted" style="font-size:13px">Coéquipiers : ${NO_COURSE_BUDDY_HINT}</p>`));
   } else {
     card.appendChild(el(`<p class="muted">Aucune séance planifiée.</p>`));
   }
@@ -1776,11 +1852,10 @@ function buildSessionsCard(course) {
         <div><label for="ns-site">Lieu</label><select id="ns-site">${siteOptions}</select></div>
       </div>
       <label for="ns-notes">Notes (optionnel)</label><input id="ns-notes">
-      <label style="margin-top:10px">Coéquipiers (optionnel, maintenez Ctrl/Cmd pour en choisir plusieurs)</label>
-      <select id="ns-buddies" multiple size="4">
-        ${state.buddies.map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(buddyLabel(b))}</option>`).join('')}
-      </select>
-      ${!state.buddies.length ? '<p class="muted">Aucun coéquipier enregistré — ajoutez-en dans Paramètres.</p>' : ''}
+      <label style="margin-top:10px">Coéquipiers de la séance (optionnel, parmi ceux du cours ; Ctrl/Cmd pour en choisir plusieurs)</label>
+      ${courseBuddyChoices(course).length ? `<select id="ns-buddies" multiple size="${Math.min(4, Math.max(2, courseBuddyChoices(course).length))}">
+        ${courseBuddyChoices(course).map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(buddyLabel(b))}</option>`).join('')}
+      </select>` : `<p class="muted">${NO_COURSE_BUDDY_HINT}</p>`}
       <div class="actions-inline">
         <button class="btn small" id="ns-add">Ajouter cette séance</button>
         <button class="btn small secondary" id="ns-cancel">Annuler</button>
@@ -1799,7 +1874,8 @@ function buildSessionsCard(course) {
   addForm.querySelector('#ns-add').addEventListener('click', async () => {
     const date = displayToIsoDate(addForm.querySelector('.ns-date').value);
     if (!date) { toast('Merci de saisir une date valide (JJ/MM/AAAA)', true); return; }
-    const coequipierIds = Array.from(addForm.querySelector('#ns-buddies').selectedOptions).map(o => o.value);
+    const nsb = addForm.querySelector('#ns-buddies');
+    const coequipierIds = nsb ? Array.from(nsb.selectedOptions).map(o => o.value) : [];
     course.sessions.push({
       date, timeStart: addForm.querySelector('#ns-time-start').value, timeEnd: addForm.querySelector('#ns-time-end').value,
       siteId: addForm.querySelector('#ns-site').value,
@@ -1918,9 +1994,16 @@ function courseTeamNames(course) {
 // Contexte pour un email personnalisé à UN étudiant (inclut ses documents manquants à lui).
 function buildEmailContext(course, type, s) {
   const sc = buildSessionsContext(course);
-  const missingPre = Object.entries(s.preDocs || {})
-    .filter(([id, v]) => !v.collected)
-    .map(([id]) => (type.preDocs || []).find(d => d.id === id)?.label || id);
+  // Documents pré-cours encore à fournir par CET étudiant : seulement ceux qui le concernent
+  // (obligatoires, conditionnels marqués « nécessaire », automatiques dont la règle s'applique).
+  const ctx = docCtx(course, s);
+  const missingPre = (type.preDocs || []).filter(d => {
+    const req = docRequirement(d), e = (s.preDocs || {})[d.id];
+    if (req === 'optional' || (e && e.collected)) return false;
+    if (req === 'conditional') return !!(e && e.needed);
+    if (req === 'rule') return docRuleNeed(d.rule, s, ctx.start).needed;
+    return true;
+  }).map(d => d.label);
   const allPre = (type.preDocs || []).map(d => d.label);
   return {
     prenom: s.firstName, nom: s.lastName,
@@ -2096,15 +2179,18 @@ function buildCommunicationsCard(course, type) {
 
 // ---------- Rapport de cours imprimable ----------
 // Une seule ligne de checklist pour le rapport, tenant compte du statut requis/optionnel/conditionnel.
-function reportDocLine(entry, docDef) {
+function reportDocLine(entry, docDef, ctx) {
   entry = entry || { collected: false, needed: false };
   const req = docRequirement(docDef);
+  if (req === 'rule' && ctx && ctx.student && !docRuleNeed(docDef.rule, ctx.student, ctx.start).needed) {
+    return `<li class="doc-na">○ ${escapeHtml(docDef.label)} <span class="muted">(non nécessaire)</span></li>`;
+  }
   if (req === 'conditional' && !entry.needed) {
     return `<li class="doc-na">○ ${escapeHtml(docDef.label)} <span class="muted">(non nécessaire)</span></li>`;
   }
   const mark = entry.collected ? '☑' : '☐';
   const cls = entry.collected ? 'doc-ok' : 'doc-missing';
-  const tag = req === 'optional' ? ' <span class="muted">(optionnel)</span>' : (req === 'conditional' ? ' <span class="muted">(nécessaire)</span>' : '');
+  const tag = req === 'optional' ? ' <span class="muted">(optionnel)</span>' : (req === 'conditional' || req === 'rule' ? ' <span class="muted">(nécessaire)</span>' : '');
   return `<li class="${cls}">${mark} ${escapeHtml(docDef.label)}${tag}</li>`;
 }
 
@@ -2129,8 +2215,8 @@ function buildReportHtml(course, type) {
   const genPostItems = (type.generalPostDocs || []).map(d => reportDocLine(course.generalPostDocs && course.generalPostDocs[d.id], d)).join('');
 
   const studentsHtml = course.students.map(s => {
-    const p = countDocGroup(s.preDocs, type.preDocs);
-    const q = countDocGroup(s.postDocs, type.postDocs);
+    const p = countDocGroup(s.preDocs, type.preDocs, docCtx(course, s));
+    const q = countDocGroup(s.postDocs, type.postDocs, docCtx(course, s));
     const prePct = p.total ? Math.round(100 * p.done / p.total) : 100;
     const postPct = q.total ? Math.round(100 * q.done / q.total) : 100;
     const infoLines = state.studentFields
@@ -2145,8 +2231,8 @@ function buildReportHtml(course, type) {
         if (f.type === 'select') { const opt = (f.options || []).find(o => o.value === v); v = opt ? opt.label : v; }
         return `<div><span class="muted">${escapeHtml(f.label)} :</span> ${escapeHtml(v)}</div>`;
       }).filter(Boolean).join('');
-    const preItems = (type.preDocs || []).map(d => reportDocLine(s.preDocs && s.preDocs[d.id], d)).join('');
-    const postItems = (type.postDocs || []).map(d => reportDocLine(s.postDocs && s.postDocs[d.id], d)).join('');
+    const preItems = (type.preDocs || []).map(d => reportDocLine(s.preDocs && s.preDocs[d.id], d, docCtx(course, s))).join('');
+    const postItems = (type.postDocs || []).map(d => reportDocLine(s.postDocs && s.postDocs[d.id], d, docCtx(course, s))).join('');
     return `
       <div class="student-card">
         <h3>${escapeHtml(s.firstName)} ${escapeHtml(s.lastName)} <span class="pct">Pré ${prePct}% · Post ${postPct}%${studentHasCertification(s) ? ` · ${s.certificationConfirmed ? '✅ Certifié' : '❌ Non certifié'}${s.certifyingInstructorId ? ' (' + escapeHtml(buddyLabelById(s.certifyingInstructorId)) + ')' : ''}` : ` · ${s.fileTransferred ? '📁 Dossier transféré' : '📁 Dossier non transféré'}`}</span></h3>
@@ -3045,8 +3131,8 @@ async function renderStudentProfile(key) {
     const type = course ? (state.courseTypes.find(t => t.code === course.typeCode) || { preDocs: [], postDocs: [] }) : { preDocs: [], postDocs: [] };
     const sessions = course ? (course.sessions || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')) : [];
     const firstDate = sessions.length ? sessions[0].date : '';
-    const p = fullStudent ? countDocGroup(fullStudent.preDocs, type.preDocs) : { total: 0, done: 0 };
-    const q = fullStudent ? countDocGroup(fullStudent.postDocs, type.postDocs) : { total: 0, done: 0 };
+    const p = fullStudent ? countDocGroup(fullStudent.preDocs, type.preDocs, docCtx(course, fullStudent)) : { total: 0, done: 0 };
+    const q = fullStudent ? countDocGroup(fullStudent.postDocs, type.postDocs, docCtx(course, fullStudent)) : { total: 0, done: 0 };
     return {
       record: fullStudent || r, course, firstDate,
       prePct: p.total ? Math.round(100 * p.done / p.total) : 100,
@@ -3296,8 +3382,8 @@ function renderStudentBlock(course, type, s) {
   // Deux étudiants du même nom dans ce cours : on affiche de quoi les distinguer.
   const namesake = (course.students || []).some(o => o !== s && normPersonName(o) === normPersonName(s));
   const namesakeHint = namesake ? `<span class="tag-status" title="Un autre étudiant de ce cours porte le même nom">homonyme · ${escapeHtml(s.email || (s.birthDate ? 'né(e) en ' + String(s.birthDate).slice(0, 4) : 'dossier « ' + s.folder + ' »'))}</span>` : '';
-  const p = countDocGroup(s.preDocs, type.preDocs);
-  const q = countDocGroup(s.postDocs, type.postDocs);
+  const p = countDocGroup(s.preDocs, type.preDocs, docCtx(course, s));
+  const q = countDocGroup(s.postDocs, type.postDocs, docCtx(course, s));
   const prePct = p.total ? Math.round(100 * p.done / p.total) : 100;
   const postPct = q.total ? Math.round(100 * q.done / q.total) : 100;
   const statusLabel = statusLabelFor(s);
@@ -3343,8 +3429,8 @@ function renderStudentBlock(course, type, s) {
 
 function buildStudentDetails(course, type, s) {
   const wrap = el(`<div></div>`);
-  const preCountForDetails = countDocGroup(s.preDocs, type.preDocs);
-  const postCountForDetails = countDocGroup(s.postDocs, type.postDocs);
+  const preCountForDetails = countDocGroup(s.preDocs, type.preDocs, docCtx(course, s));
+  const postCountForDetails = countDocGroup(s.postDocs, type.postDocs, docCtx(course, s));
   const prePctForDetails = preCountForDetails.total ? Math.round(100 * preCountForDetails.done / preCountForDetails.total) : 100;
   const postPctForDetails = postCountForDetails.total ? Math.round(100 * postCountForDetails.done / postCountForDetails.total) : 100;
   const tpl = state.emailTemplates.find(t => t.id === course.emailTemplateId);
@@ -3412,12 +3498,12 @@ function buildStudentDetails(course, type, s) {
   const preBox = wrap.querySelector('.pre-checklist');
   (type.preDocs || []).forEach(docDef => preBox.appendChild(
     buildGenericChecklistItem(s, 'preDocs', docDef, `/api/courses/${encodeURIComponent(course.id)}/students/${encodeURIComponent(s.folder)}`,
-      () => { updateStudentBadges(s, type); refreshCourseBadges(course, type); })
+      () => { updateStudentBadges(s, type, course); refreshCourseBadges(course, type); }, docCtx(course, s))
   ));
   const postBox = wrap.querySelector('.post-checklist');
   (type.postDocs || []).forEach(docDef => postBox.appendChild(
     buildGenericChecklistItem(s, 'postDocs', docDef, `/api/courses/${encodeURIComponent(course.id)}/students/${encodeURIComponent(s.folder)}`,
-      () => { updateStudentBadges(s, type); refreshCourseBadges(course, type); })
+      () => { updateStudentBadges(s, type, course); refreshCourseBadges(course, type); }, docCtx(course, s))
   ));
 
   wrap.querySelector('[data-act=open-folder]').addEventListener('click', () => openExplorer(course.id, s.folder));
@@ -4550,7 +4636,9 @@ function buildBillingCard() {
 // d'un type de cours) : chaque ligne a un libellé et un niveau d'exigence. getValue() ne garde que
 // les lignes dont le libellé n'est pas vide, et conserve l'id existant d'un document déjà présent
 // (le renommer casserait le rapprochement avec les cases déjà cochées chez des étudiants existants).
-function buildDocListEditor(groupLabel, initialDocs) {
+function buildDocListEditor(groupLabel, initialDocs, allowRules) {
+  const statusField = (state.studentFields || []).find(f => f.id === 'status');
+  const statusOpts = (statusField && statusField.options) || [];
   const wrap = el(`<div style="margin-top:10px">
     <div style="font-weight:600;font-size:13px;color:var(--text-light);margin-bottom:4px">${escapeHtml(groupLabel)}</div>
     <div class="doclist-rows"></div>
@@ -4572,19 +4660,28 @@ function buildDocListEditor(groupLabel, initialDocs) {
           <button type="button" class="btn small secondary dl-down" title="Descendre" aria-label="Descendre ce document">↓</button>
         </div>
         <div style="flex:2;min-width:220px"><input class="dl-label" placeholder="Libellé du document" value="${escapeHtml((doc && doc.label) || '')}"></div>
-        <div style="flex:1;min-width:150px">
+        <div style="flex:1;min-width:210px">
           <select class="dl-req">
             <option value="required" ${!doc || !doc.requirement || doc.requirement === 'required' ? 'selected' : ''}>Obligatoire</option>
             <option value="optional" ${doc && doc.requirement === 'optional' ? 'selected' : ''}>Optionnel</option>
-            <option value="conditional" ${doc && doc.requirement === 'conditional' ? 'selected' : ''}>Conditionnel (selon l'étudiant)</option>
+            <option value="conditional" ${doc && doc.requirement === 'conditional' ? 'selected' : ''}>Conditionnel (coché à la main)</option>
+            ${allowRules ? `<option value="rule" ${doc && doc.requirement === 'rule' ? 'selected' : ''}>Automatique (âge / statut)</option>` : ''}
           </select>
         </div>
         <div style="flex:0 0 auto;min-width:0" class="dl-move">
           <button type="button" class="btn small secondary dl-insert" title="Insérer un document juste en dessous" aria-label="Insérer un document en dessous">+</button>
           <button type="button" class="btn small danger dl-remove" title="Retirer ce document" aria-label="Retirer ce document">✕</button>
         </div>
+        ${allowRules ? `<div class="dl-rule" ${doc && doc.requirement === 'rule' ? '' : 'hidden'}>
+          <span class="dl-rule-title">Nécessaire si :</span>
+          <label class="checklist-item"><input type="checkbox" class="dl-age-on" ${doc && doc.rule && Number(doc.rule.maxAge) > 0 ? 'checked' : ''}> l'étudiant a moins de
+            <input type="number" class="dl-age" min="1" max="99" step="1" value="${doc && doc.rule && Number(doc.rule.maxAge) > 0 ? Number(doc.rule.maxAge) : 18}" aria-label="Âge limite"> ans au début du cours</label>
+          ${statusOpts.length ? `<span class="dl-rule-and">et</span><span class="dl-rule-statuses"><span>son statut est :</span>${statusOpts.map(o => `<label class="checklist-item"><input type="checkbox" class="dl-st" value="${escapeHtml(o.value)}" ${doc && doc.rule && (doc.rule.statuses || []).includes(o.value) ? 'checked' : ''}> ${escapeHtml(o.label)}</label>`).join('')}<span class="muted">(aucun coché = tous)</span></span>` : ''}
+        </div>` : ''}
       </div>
     `);
+    const ruleBox = row.querySelector('.dl-rule');
+    if (ruleBox) row.querySelector('.dl-req').addEventListener('change', e => { ruleBox.hidden = e.target.value !== 'rule'; });
     row.dataset.id = (doc && doc.id) || '';
     row.querySelector('.dl-remove').addEventListener('click', () => { row.remove(); refreshArrows(); });
     row.querySelector('.dl-up').addEventListener('click', e => {
@@ -4617,7 +4714,16 @@ function buildDocListEditor(groupLabel, initialDocs) {
       const labelVal = row.querySelector('.dl-label').value.trim();
       if (!labelVal) return;
       const id = row.dataset.id || slugify(labelVal);
-      out.push({ id, label: labelVal, requirement: row.querySelector('.dl-req').value });
+      const requirement = row.querySelector('.dl-req').value;
+      const doc = { id, label: labelVal, requirement };
+      if (requirement === 'rule') {
+        const rule = {};
+        if (row.querySelector('.dl-age-on').checked) rule.maxAge = Math.max(1, parseInt(row.querySelector('.dl-age').value, 10) || 18);
+        const st = [...row.querySelectorAll('.dl-st:checked')].map(x => x.value);
+        if (st.length) rule.statuses = st;
+        doc.rule = rule;
+      }
+      out.push(doc);
     });
     return out;
   };
@@ -4682,8 +4788,8 @@ function buildCourseTypesCard() {
       <p class="muted" id="ct-error"></p>
     `;
     const doclistsBox = formBox.querySelector('#ct-doclists');
-    const preEditor = buildDocListEditor('Documents pré-cours (par étudiant)', existing ? existing.preDocs : []);
-    const postEditor = buildDocListEditor('Documents post-cours (par étudiant)', existing ? existing.postDocs : []);
+    const preEditor = buildDocListEditor('Documents pré-cours (par étudiant)', existing ? existing.preDocs : [], true);
+    const postEditor = buildDocListEditor('Documents post-cours (par étudiant)', existing ? existing.postDocs : [], true);
     const genPreEditor = buildDocListEditor('Documents généraux pré-cours (une fois par cours)', existing ? existing.generalPreDocs : []);
     const genPostEditor = buildDocListEditor('Documents généraux post-cours (une fois par cours)', existing ? existing.generalPostDocs : []);
     doclistsBox.appendChild(preEditor);

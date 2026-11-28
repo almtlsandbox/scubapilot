@@ -205,3 +205,25 @@ test('identifiants en double dans une liste de réglages : réparés à la lectu
     assert.deepEqual((await srv.api('GET', '/api/conflicts')).data, []);
   } finally { await srv.stop(); }
 });
+
+test('documents « Automatique » : comptés selon l\'âge et le statut de chaque étudiant', async () => {
+  const srv = await startServer({ port: 45498 });
+  try {
+    const types = (await srv.api('GET', '/api/course-types')).data;
+    types.push({ code: 'RULETEST', label: 'Test règles', preDocs: [
+      { id: 'q', label: 'Questionnaire', requirement: 'required' },
+      { id: 'parent', label: 'Signature parentale', requirement: 'rule', rule: { maxAge: 18 } },
+      { id: 'photo', label: 'Photo PADI', requirement: 'rule', rule: { statuses: ['certif', 'both'] } }
+    ], postDocs: [], generalPreDocs: [], generalPostDocs: [] });
+    await srv.api('PUT', '/api/course-types', types);
+    await srv.api('PUT', '/api/centers', [{ id: 'c1', name: 'Centre' }]);
+    const c = (await srv.api('POST', '/api/courses', { typeCode: 'RULETEST', centerId: 'c1', session: { date: '2026-12-04' } })).data;
+    await srv.api('POST', `/api/courses/${c.id}/students`, { firstName: 'Ado', lastName: 'Jeune', birthDate: '2012-03-01', status: 'both' });
+    await srv.api('POST', `/api/courses/${c.id}/students`, { firstName: 'Adu', lastName: 'Lte', birthDate: '1980-03-01', status: 'cours' });
+    const list = (await srv.api('GET', '/api/courses')).data;
+    const st = list.find(x => x.id === c.id).stats;
+    const by = n => st.students.find(s => s.firstName === n);
+    assert.equal(by('Ado').preMissing, 3);
+    assert.equal(by('Adu').preMissing, 1);
+  } finally { await srv.stop(); }
+});

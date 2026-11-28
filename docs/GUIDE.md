@@ -1,6 +1,6 @@
 # ScubaPilot — Guide complet
 
-**Version 1.22.2 — Novembre 2026**
+**Version 1.23 — Novembre 2026**
 
 Ce guide accompagne l'utilisateur de l'installation jusqu'à l'utilisation quotidienne : suivi des cours, des étudiants et de leurs documents, communications, certification, facturation, sauvegarde et mises à jour.
 
@@ -223,7 +223,7 @@ En haut : dates, sites, centre, instructeurs, dossier, pourcentages globaux de d
 **Séances & Photos**
 - Un cours peut avoir **plusieurs séances** (théorie, piscine, fosse, mer…), chacune avec date, heure de début, heure de fin, site et notes. La **durée** est calculée automatiquement et la durée totale du cours s'affiche en haut.
 - Tous les champs sont modifiables directement dans le tableau : la valeur s'enregistre toute seule (un changement de date recharge la page pour retrier).
-- Sur chaque séance, ajoutez des **coéquipiers** via le menu « + ajouter… » ; leur courriel est mis en copie (Cc) des courriels du cours, comme celui des instructeurs rattachés au cours.
+- Sur chaque séance, ajoutez des **coéquipiers** via le menu « + ajouter… ». Il ne propose que les **instructeurs et coéquipiers choisis pour ce cours** (bouton « Modifier les notes / le centre / les instructeurs »), sans vous-même ; pour en proposer un autre, ajoutez-le d'abord au cours ; leur courriel est mis en copie (Cc) des courriels du cours, comme celui des instructeurs rattachés au cours.
 - **📅 Ajouter au calendrier** : enregistre un fichier `.ics` contenant une entrée par séance (heures, lieu, coéquipiers, notes). Ouvrez-le pour l'ajouter à Outlook, Google Agenda ou au Calendrier d'Apple. Sans heure de début, la séance est inscrite sur la journée entière. Le tableau de bord propose la même chose pour toutes les séances à venir d'un coup : menu **⋯ → Calendrier des cours à venir (.ics)**.
 - La carte **Photos du cours** reçoit vos photos par glisser-déposer.
 
@@ -267,7 +267,13 @@ Chaque document d'une checklist est :
 
 - **obligatoire** (`required`) : toujours compté dans le pourcentage ;
 - **facultatif** (`optional`) : jamais compté (informatif) ;
-- **conditionnel** (`conditional`) : un interrupteur **« Nécessaire ? »** apparaît pour chaque étudiant. Le document ne compte que si l'interrupteur est activé (par exemple un certificat médical selon le questionnaire, ou l'autorisation parentale selon l'âge).
+- **conditionnel — coché à la main** (`conditional`) : un interrupteur **« Nécessaire ? »** apparaît pour chaque étudiant. Le document ne compte que si l'interrupteur est activé (par exemple un billet du médecin selon les réponses au questionnaire médical) ;
+- **automatique — âge / statut** (`rule`) : ScubaPilot décide lui-même, pour chaque étudiant, si le document est nécessaire, selon une **règle** choisie dans le modèle de cours :
+  - **l'étudiant a moins de N ans au début du cours** (âge calculé avec sa date de naissance et la première séance) — par exemple la **signature parentale** pour les moins de 18 ans ;
+  - **son statut est** l'un de ceux cochés (Cours, Certification, Cours + Certification) — par exemple la **photo ID PADI** seulement pour « Certification » et « Cours + Certification » ;
+  - les deux à la fois si vous cochez les deux conditions.
+
+  Dans la fiche de l'étudiant, le document porte une étiquette **nécessaire** (bleue) ou **non nécessaire** (grise) avec la raison (« 15 ans », « Cours + Certification »). Un document non nécessaire ne compte pas dans les pourcentages, n'apparaît pas dans `{liste_docs_manquants}` et figure comme « non nécessaire » dans le rapport. **Sans date de naissance**, une règle d'âge considère le document comme nécessaire, pour ne pas l'oublier. Changer la date de naissance ou le statut d'un étudiant met tout à jour.
 
 Les pourcentages « Pré » et « Post » sont calculés à partir de la liste des documents du type de cours : un document ajouté plus tard au type apparaît donc correctement comme manquant chez les étudiants existants.
 
@@ -519,7 +525,7 @@ Chaque type contient quatre listes de documents :
 - `preDocs` / `postDocs` : documents à collecter **par étudiant**, avant et après le cours ;
 - `generalPreDocs` / `generalPostDocs` : documents **généraux** du cours, cochés une fois pour tout le cours.
 
-Chaque document a un libellé et une exigence (obligatoire, facultatif, conditionnel). Ne **changez pas l'identifiant** d'un document existant : il relie la case aux étudiants déjà cochés.
+Chaque document a un libellé et une exigence : obligatoire, optionnel, conditionnel (coché à la main) ou, pour les documents par étudiant, **automatique (âge / statut)**. En choisissant « Automatique », un encadré **Nécessaire si :** apparaît sous la ligne : cochez « l'étudiant a moins de [18] ans au début du cours » et/ou les statuts concernés (voir [5.6](#56-statuts-de-documents-et-pourcentages)). Ne **changez pas l'identifiant** d'un document existant : il relie la case aux étudiants déjà cochés.
 
 **Ordre des documents** : c'est l'ordre des cases dans la fiche de l'étudiant, les rapports et les courriels. Pour le changer :
 

@@ -410,3 +410,17 @@ button.stat-tile { text-align: left; font: inherit; cursor: pointer; width: 100%
 .pl-editor { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-top: 14px; background: var(--surface-2); }
 .pl-editor h4 { margin: 0; font-size: 14px; }
 .pl-empty .hint-warn { margin: 12px 0 0; }
+
+/* ---------- Documents « Automatique » (1.23) ---------- */
+.doclist-row { flex-wrap: wrap; }
+.doclist-row > .dl-rule { flex: 0 0 100%; max-width: 100%; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 8px;  padding: 8px 12px; border-left: 3px solid var(--blue); background: var(--surface-2); border-radius: 0 6px 6px 0; font-size: 13px; }
+.doclist-row > .dl-rule[hidden] { display: none; }
+.dl-rule .checklist-item { margin: 0; display: inline-flex; align-items: center; gap: 6px; }
+.dl-rule input.dl-age { width: 64px; padding: 4px 6px; margin: 0 2px; }
+.dl-rule-title { font-weight: 600; }
+.dl-rule-and { color: var(--text-light); font-style: italic; }
+.dl-rule-statuses { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.rule-tag { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--neutral-bg); color: var(--neutral-text); border: 1px solid var(--neutral-border); }
+.rule-tag.needed { background: var(--info-bg); color: var(--info-text); border-color: var(--info-border); }
+.doc-not-needed > span:not(.rule-tag) { color: var(--text-light); }
+@media (max-width: 700px) { .dl-rule { margin-left: 0; } }
